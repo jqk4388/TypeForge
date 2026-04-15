@@ -174,21 +174,59 @@
     <!-- Preview Panel -->
     <div class="panel" id="panel-preview">
       <h2 style="font-size:20px;font-weight:700;margin-bottom:16px">字体预览</h2>
-      <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-        <input class="fld" id="previewText" value="永字八法 龍鳳體 TypeForge 0123" style="max-width:400px" placeholder="输入预览文本...">
-        <label style="font-size:12px;color:var(--tx-2)">字号 <input type="range" id="previewSize" min="8" max="200" value="36" style="width:100px"><span id="previewSizeVal">36px</span></label>
-        <label style="font-size:12px;color:var(--tx-2)">行距 <input type="range" id="previewLineH" min="1" max="3" step="0.1" value="1.4" style="width:80px"></label>
-        <select class="fld" id="previewBg" style="width:80px"><option value="#fff">白色</option><option value="#000">黑色</option><option value="#f0f0f0">浅灰</option><option value="#333">深灰</option></select>
+
+      <!-- 预设文本 -->
+      <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+        <span class="lbl" style="margin-bottom:0">预设文本</span>
+        <button class="btn-ghost btn-sm preset-text-btn" data-preset="中英混排">中英混排</button>
+        <button class="btn-ghost btn-sm preset-text-btn" data-preset="中文段落">中文段落</button>
+        <button class="btn-ghost btn-sm preset-text-btn" data-preset="英文">英文</button>
+        <button class="btn-ghost btn-sm preset-text-btn" data-preset="数字标点">数字标点</button>
+        <button class="btn-ghost btn-sm preset-text-btn" data-preset="大小写">大小写</button>
+        <button class="btn-ghost btn-sm preset-text-btn" data-preset="连字测试">连字</button>
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap" id="otFeatureToggles"></div>
+
+      <!-- 排版控件 -->
+      <div style="display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+        <input class="fld" id="previewText" value="永字八法 龍鳳體 TypeForge 0123" style="flex:1;min-width:280px" placeholder="输入预览文本...">
+        <label style="font-size:12px;color:var(--tx-2);display:flex;align-items:center;gap:4px">字号
+          <input type="range" id="previewSize" min="8" max="200" value="36" style="width:90px"><span id="previewSizeVal" style="min-width:36px">36px</span>
+        </label>
+        <label style="font-size:12px;color:var(--tx-2);display:flex;align-items:center;gap:4px">行距
+          <input type="range" id="previewLineH" min="0.8" max="3" step="0.05" value="1.4" style="width:70px">
+        </label>
+        <label style="font-size:12px;color:var(--tx-2);display:flex;align-items:center;gap:4px">字距
+          <input type="range" id="previewLetterSpacing" min="-0.5" max="1" step="0.01" value="0" style="width:60px">
+        </label>
+        <label style="font-size:12px;color:var(--tx-2);display:flex;align-items:center;gap:4px">词距
+          <input type="range" id="previewWordSpacing" min="-0.5" max="2" step="0.05" value="0" style="width:60px">
+        </label>
+        <select class="fld" id="previewBg" style="width:70px"><option value="#fff">白色</option><option value="#000">黑色</option><option value="#f0f0f0">浅灰</option><option value="#333">深灰</option></select>
+        <select class="fld" id="previewOTLang" style="width:80px"><option value="">OT语言</option><option value="ENG">英文</option><option value="JPN">日文</option><option value="KOR">韩文</option><option value="ZHH">简中</option><option value="ZHT">繁中</option><option value="ARA">阿拉伯</option></select>
+      </div>
+
+      <!-- 变量字体轴 -->
+      <div id="fvarControls" style="display:none;margin-bottom:12px;padding:10px;background:var(--bg-1);border:1px solid var(--bd);border-radius:8px">
+        <div class="lbl" style="margin-bottom:6px">变量字体轴</div>
+      </div>
+
+      <!-- OpenType 特性开关 -->
+      <div style="margin-bottom:12px;padding:10px;background:var(--bg-1);border:1px solid var(--bd);border-radius:8px">
+        <div class="lbl" style="margin-bottom:6px">OpenType 特性</div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap" id="otFeatureToggles">
+          <span style="font-size:12px;color:var(--tx-2)">加载字体后显示</span>
+        </div>
+      </div>
+
+      <!-- 横排 + 竖排 -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div>
           <div class="lbl" style="margin-bottom:6px">横排 <span class="tag tag-ok">horizontal-tb</span></div>
-          <iframe id="previewIframeH" style="width:100%;height:260px;border:1px solid var(--bd);border-radius:8px;background:#fff" sandbox="allow-same-origin allow-scripts"></iframe>
+          <iframe id="previewIframeH" style="width:100%;height:300px;border:1px solid var(--bd);border-radius:8px;background:#fff" sandbox="allow-same-origin allow-scripts"></iframe>
         </div>
         <div>
           <div class="lbl" style="margin-bottom:6px">竖排 <span class="tag tag-warn">vertical-rl</span></div>
-          <iframe id="previewIframeV" style="width:100%;height:260px;border:1px solid var(--bd);border-radius:8px;background:#fff" sandbox="allow-same-origin allow-scripts"></iframe>
+          <iframe id="previewIframeV" style="width:100%;height:300px;border:1px solid var(--bd);border-radius:8px;background:#fff" sandbox="allow-same-origin allow-scripts"></iframe>
         </div>
       </div>
     </div>

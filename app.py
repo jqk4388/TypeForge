@@ -1903,6 +1903,122 @@ def get_otl_lookup_detail(session_id, tag, lookup_idx):
     
     return jsonify(result)
 
+# ─── OTL Feature/Lookup Management ───────────────────────────────────
+
+@app.route('/api/otl/<session_id>/<tag>/feature/<feature_tag>', methods=['DELETE'])
+def delete_otl_feature(session_id, tag, feature_tag):
+    """Delete an OpenType feature by its tag (e.g. 'liga', 'kern')."""
+    info = get_font(session_id)
+    if not info:
+        return jsonify({'error': 'Session not found'}), 404
+
+    tbl = info['font'].get(tag)
+    if tbl is None or not hasattr(tbl, 'table') or tbl.table is None:
+        return jsonify({'error': f'Table {tag} not found'}), 404
+
+    tt = tbl.table
+    if not tt.FeatureList:
+        return jsonify({'error': 'No FeatureList'}), 404
+
+    # Find and remove the feature record
+    feat_list = tt.FeatureList
+    removed = False
+    feat_idx = None
+    for i, frec in enumerate(feat_list.FeatureRecord):
+        if frec.FeatureTag == feature_tag:
+            feat_idx = i
+            feat_list.FeatureRecord.pop(i)
+            feat_list.FeatureCount -= 1
+            removed = True
+            break
+
+    if not removed:
+        return jsonify({'error': f'Feature {feature_tag} not found'}), 404
+
+    # Remove feature index references from all language systems
+    if tt.ScriptList:
+        for srec in tt.ScriptList.ScriptRecord:
+            if srec.Script.DefaultLangSys:
+                dls = srec.Script.DefaultLangSys
+                if feat_idx in dls.FeatureIndex:
+                    dls.FeatureIndex.remove(feat_idx)
+                    dls.FeatureCount -= 1
+                # Decrement indices > feat_idx
+                for j in range(len(dls.FeatureIndex)):
+                    if dls.FeatureIndex[j] > feat_idx:
+                        dls.FeatureIndex[j] -= 1
+            if srec.Script.LangSysRecord:
+                for lrec in srec.Script.LangSysRecord:
+                    ls = lrec.LangSys
+                    if feat_idx in ls.FeatureIndex:
+                        ls.FeatureIndex.remove(feat_idx)
+                        ls.FeatureCount -= 1
+                    for j in range(len(ls.FeatureIndex)):
+                        if ls.FeatureIndex[j] > feat_idx:
+                            ls.FeatureIndex[j] -= 1
+
+    log_info("Deleted feature: %s from %s", feature_tag, tag)
+    return jsonify({'ok': True, 'feature': feature_tag})
+
+@app.route('/api/otl/<session_id>/<tag>/lookup/<int:lookup_idx>', methods=['DELETE'])
+def delete_otl_lookup(session_id, tag, lookup_idx):
+    """Delete an OpenType lookup by its index."""
+    info = get_font(session_id)
+    if not info:
+        return jsonify({'error': 'Session not found'}), 404
+
+    tbl = info['font'].get(tag)
+    if tbl is None or not hasattr(tbl, 'table') or tbl.table is None:
+        return jsonify({'error': f'Table {tag} not found'}), 404
+
+    tt = tbl.table
+    lookups = tt.LookupList.Lookup
+    if lookup_idx >= len(lookups):
+        return jsonify({'error': 'Lookup index out of range'}), 404
+
+    # Remove lookup
+    lookups.pop(lookup_idx)
+    tt.LookupList.LookupCount -= 1
+
+    # Update feature references: remove lookup_idx and decrement > lookup_idx
+    if tt.FeatureList:
+        for frec in tt.FeatureList.FeatureRecord:
+            indices = frec.Feature.LookupListIndex
+            if lookup_idx in indices:
+                indices.remove(lookup_idx)
+                frec.Feature.LookupCount -= 1
+            for j in range(len(indices)):
+                if indices[j] > lookup_idx:
+                    indices[j] -= 1
+
+    # Update language system feature indices if needed
+    log_info("Deleted lookup %d from %s", lookup_idx, tag)
+    return jsonify({'ok': True, 'lookupIndex': lookup_idx})
+
+@app.route('/api/otl/<session_id>/<tag>/lookup/<int:lookup_idx>/subtable/<int:st_idx>', methods=['DELETE'])
+def delete_otl_subtable(session_id, tag, lookup_idx, st_idx):
+    """Delete a subtable within a lookup."""
+    info = get_font(session_id)
+    if not info:
+        return jsonify({'error': 'Session not found'}), 404
+
+    tbl = info['font'].get(tag)
+    if tbl is None or not hasattr(tbl, 'table') or tbl.table is None:
+        return jsonify({'error': f'Table {tag} not found'}), 404
+
+    lookups = tbl.table.LookupList.Lookup
+    if lookup_idx >= len(lookups):
+        return jsonify({'error': 'Lookup index out of range'}), 404
+
+    lookup = lookups[lookup_idx]
+    if st_idx >= len(lookup.SubTable):
+        return jsonify({'error': 'Subtable index out of range'}), 404
+
+    lookup.SubTable.pop(st_idx)
+    lookup.SubTableCount -= 1
+    log_info("Deleted subtable %d from lookup %d (%s)", st_idx, lookup_idx, tag)
+    return jsonify({'ok': True})
+
 # ─── Subset ─────────────────────────────────────────────────────────
 
 @app.route('/api/subset/<session_id>', methods=['POST'])

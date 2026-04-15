@@ -1,14 +1,15 @@
 /**
- * TypeForge Pro — Vector Editor v6
+ * TypeForge Pro — Vector Editor v7
  *
- * 核心修复：
- * 1. Paper.js 初始化：完全自主管理 canvas，不再手动干预 DPR
- * 2. 缩放：以鼠标位置为中心，平滑因子 1.08，范围 0.01-128
- * 3. 中键拖拽：button === 1 判断，阻止默认中键行为
- * 4. 空格拖拽：保留
- * 5. 消除重影：viewSize 只在初始化时设一次，resize 时重设
- * 6. 控制点/网格线：clamp 最小粗细，高倍缩放也可见
- * 7. fitView：改用 zoom/center 直接计算，不多次 scale
+ * 核心改进：
+ * 1. 拖拽控制点时实时重绘轮廓路径（不再只移动点圆圈）
+ * 2. off-curve 手柄线：渲染 off-curve → on-curve 之间的蓝色连接线
+ * 3. 缩放：以鼠标位置为中心，平滑因子 1.08，范围 0.01-128
+ * 4. 中键拖拽：button === 1 判断，阻止默认中键行为
+ * 5. 空格拖拽：保留
+ * 6. 消除重影：viewSize 只在初始化时设一次，resize 时重设
+ * 7. 控制点/网格线：clamp 最小粗细，高倍缩放也可见
+ * 8. fitView：改用 zoom/center 直接计算，不多次 scale
  */
 import { $, $$, state, api, toast } from './state.js';
 
@@ -26,6 +27,8 @@ let vecState = {
   tool: 'select',
   paperScope: null,
   pointItems: [],
+  mainPathItems: [],     // Paper.js Path items for glyph outline
+  handleLineItems: [],   // Paper.js Path items for handle lines (off→on connections)
   refPath: null,
   initialized: false,
   pendingGlyph: null,
@@ -325,6 +328,8 @@ function ensurePaperInit() {
         vecState.points[idx].x = Math.round(dragItem.position.x);
         vecState.points[idx].y = Math.round(-dragItem.position.y);
         updateVecPointInfo(idx);
+        // 实时更新轮廓路径 + 手柄线
+        updateGlyphOutlineLive(ps);
       }
     };
 
@@ -423,6 +428,10 @@ function renderVecEditor() {
   // strokeWidth 工具函数：clamp 最小值，高倍缩放也能看到
   const sw = (base) => Math.max(base / zoom, 0.3);
 
+  // 重置路径和手柄线引用
+  vecState.mainPathItems = [];
+  vecState.handleLineItems = [];
+
   // ── 背景网格 ─────────────────────────────────────────────────
   for (let i = 0; i <= em; i += 100) {
     const isMajor = (i % 500 === 0);
@@ -503,6 +512,9 @@ function renderVecEditor() {
     } catch (e) { /* ignore */ }
   }
 
+  // ── 手柄线（off-curve → 相邻 on-curve 的连接线） ────────────
+  renderHandleLines(ps, sw);
+
   // ── 控制点 ───────────────────────────────────────────────────
   vecState.pointItems = [];
   vecState.points.forEach((p, i) => {
@@ -536,6 +548,7 @@ function drawGlyphFromSVG(ps) {
     mainPath.fillColor = new ps.Color(0.486, 0.361, 0.988, 0.15);
     mainPath.strokeColor = '#7c5cfc';
     mainPath.strokeWidth = 1.5;
+    vecState.mainPathItems.push(mainPath);
     console.log('[Vector] Path via pathData, segs:', mainPath.segments?.length);
     return true;
   } catch (e1) {
@@ -558,6 +571,7 @@ function drawGlyphFromSVG(ps) {
       path.fillColor = new ps.Color(0.486, 0.361, 0.988, 0.15);
       path.strokeColor = '#7c5cfc';
       path.strokeWidth = 1.5;
+      vecState.mainPathItems.push(path);
       console.log('[Vector] Path via manual parsing');
       return true;
     }
@@ -629,7 +643,81 @@ function drawGlyphFromPoints(ps) {
     path.fillColor = new ps.Color(0.486, 0.361, 0.988, 0.15);
     path.strokeColor = '#7c5cfc';
     path.strokeWidth = 1.5;
+    vecState.mainPathItems.push(path);
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   手柄线渲染（off-curve → 相邻 on-curve 连接）
+   ══════════════════════════════════════════════════════════════════ */
+function renderHandleLines(ps, sw) {
+  vecState.handleLineItems = [];
+  if (!vecState.points.length || !vecState.endPts.length) return;
+
+  for (let ci = 0; ci < vecState.endPts.length; ci++) {
+    const start = ci === 0 ? 0 : vecState.endPts[ci - 1] + 1;
+    const end = vecState.endPts[ci] + 1;
+    const contourPts = vecState.points.slice(start, end);
+    if (contourPts.length < 2) continue;
+
+    for (let i = 0; i < contourPts.length; i++) {
+      const pt = contourPts[i];
+      if (pt.onCurve) continue;
+
+      // 找 off-curve 前一个 on-curve
+      let prevIdx = (i - 1 + contourPts.length) % contourPts.length;
+      while (prevIdx !== i && !contourPts[prevIdx].onCurve) {
+        prevIdx = (prevIdx - 1 + contourPts.length) % contourPts.length;
+      }
+      if (contourPts[prevIdx].onCurve && prevIdx !== i) {
+        const line = new ps.Path.Line({
+          from: [contourPts[prevIdx].x, -contourPts[prevIdx].y],
+          to: [pt.x, -pt.y],
+          strokeColor: 'rgba(124, 92, 252, 0.4)',
+          strokeWidth: sw(0.6)
+        });
+        vecState.handleLineItems.push(line);
+      }
+
+      // 找 off-curve 后一个 on-curve
+      let nextIdx = (i + 1) % contourPts.length;
+      while (nextIdx !== i && !contourPts[nextIdx].onCurve) {
+        nextIdx = (nextIdx + 1) % contourPts.length;
+      }
+      if (contourPts[nextIdx].onCurve && nextIdx !== i && nextIdx !== prevIdx) {
+        const line = new ps.Path.Line({
+          from: [pt.x, -pt.y],
+          to: [contourPts[nextIdx].x, -contourPts[nextIdx].y],
+          strokeColor: 'rgba(124, 92, 252, 0.4)',
+          strokeWidth: sw(0.6)
+        });
+        vecState.handleLineItems.push(line);
+      }
+    }
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   拖拽时实时更新轮廓 + 手柄线 + 控制点位置
+   ══════════════════════════════════════════════════════════════════ */
+function updateGlyphOutlineLive(ps) {
+  // 删除旧的路径和手柄线
+  for (const p of vecState.mainPathItems) { p.remove(); }
+  for (const h of vecState.handleLineItems) { h.remove(); }
+  vecState.mainPathItems = [];
+  vecState.handleLineItems = [];
+
+  // 重新绘制路径
+  if (vecState.points.length > 0 && vecState.endPts.length > 0) {
+    drawGlyphFromPoints(ps);
+  }
+
+  // 重新绘制手柄线
+  const zoom = ps.view.zoom || 1;
+  const sw = (base) => Math.max(base / zoom, 0.3);
+  renderHandleLines(ps, sw);
+
+  ps.view.update();
 }
 
 /* ══════════════════════════════════════════════════════════════════

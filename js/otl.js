@@ -139,7 +139,8 @@ function renderOtlTree(data) {
       }).join('');
 
       html += treeNode(
-        `<span class="tag tag-ac">${f.tag}</span> ${featureDesc} <span style="font-size:10px;color:var(--tx-3)">(${f.lookups.length} Lookup)</span>`,
+        `<span class="tag tag-ac">${f.tag}</span> ${featureDesc} <span style="font-size:10px;color:var(--tx-3)">(${f.lookups.length} Lookup)</span>
+        <button class="btn-ghost btn-sm otl-delete-feature" data-feat="${f.tag}" style="float:right;font-size:10px;color:var(--err)">✕</button>`,
         lookupContent
       );
     }
@@ -206,7 +207,8 @@ function renderOtlTree(data) {
       }
 
       html += treeNode(
-        `<span style="font-weight:600">Lookup ${lk.index}</span> <span class="tag tag-ac">Type ${lk.type}</span> <span style="font-size:11px;color:var(--tx-2)">${typeLabelZh}</span>`,
+        `<span style="font-weight:600">Lookup ${lk.index}</span> <span class="tag tag-ac">Type ${lk.type}</span> <span style="font-size:11px;color:var(--tx-2)">${typeLabelZh}</span>
+        <button class="btn-ghost btn-sm otl-delete-lookup" data-idx="${lk.index}" style="float:right;font-size:10px;color:var(--err)">✕</button>`,
         subtableContent,
         false  // Lookups expanded by default
       );
@@ -277,6 +279,32 @@ function renderOtlTree(data) {
         const res = await api(`/otl-lookup-detail/${state.SID}/${state.currentOtlTab}/${idx}`);
         const data = await res.json();
         showLookupEditModal(data);
+      } catch (e) { toast(e.message, 'err'); }
+    });
+  });
+
+  // Delete feature buttons
+  $$('.otl-delete-feature').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const tag = btn.dataset.feat;
+      if (!confirm(`确定删除特性 ${tag}？`)) return;
+      try {
+        await api(`/otl/${state.SID}/${state.currentOtlTab}/feature/${tag}`, { method: 'DELETE' });
+        await loadOtl();
+        toast(`特性 ${tag} 已删除`);
+      } catch (e) { toast(e.message, 'err'); }
+    });
+  });
+
+  // Delete lookup buttons
+  $$('.otl-delete-lookup').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx = +btn.dataset.idx;
+      if (!confirm(`确定删除 Lookup ${idx}？`)) return;
+      try {
+        await api(`/otl/${state.SID}/${state.currentOtlTab}/lookup/${idx}`, { method: 'DELETE' });
+        await loadOtl();
+        toast(`Lookup ${idx} 已删除`);
       } catch (e) { toast(e.message, 'err'); }
     });
   });
