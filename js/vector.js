@@ -305,7 +305,8 @@ function ensurePaperInit() {
             pushHistory();
             renderVecEditor();
           }
-        } else if (vecState.tool === 'addOn' || vecState.tool === 'addOff') {
+        }
+      } else if (vecState.tool === 'addOn' || vecState.tool === 'addOff') {
         const x = Math.round(event.point.x);
         const y = Math.round(-event.point.y);
         vecState.points.push({ x, y, onCurve: vecState.tool === 'addOn' });
