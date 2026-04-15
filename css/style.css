@@ -1,0 +1,295 @@
+/* ═══════════════════════════════════════════════════════════════
+   TypeForge Pro v2 — Main Stylesheet
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Theme Variables ─────────────────────────────────────────── */
+:root {
+  --bg-0: #08080e; --bg-1: #0f0f18; --bg-2: #161622; --bg-3: #1e1e30;
+  --tx-0: #eeeef2; --tx-1: #aaaac0; --tx-2: #6e6e8a; --tx-3: #4e4e68;
+  --bd: #252540; --bd-h: #353558;
+  --ac: #7c5cfc; --ac-h: #6a48e8; --ac-bg: rgba(124, 92, 252, .1);
+  --ok: #2dd4a0; --err: #f43f5e; --warn: #fbbf24;
+  --mod: rgba(251, 191, 36, .12); --mod-b: #fbbf24;
+}
+[data-theme="light"] {
+  --bg-0: #f4f4f8; --bg-1: #fff; --bg-2: #eaeaf0; --bg-3: #d8d8e2;
+  --tx-0: #111118; --tx-1: #444460; --tx-2: #8888a0; --tx-3: #aaaac0;
+  --bd: #d0d0dc; --bd-h: #b8b8cc;
+  --ac: #6a48e8; --ac-h: #5a38d8; --ac-bg: rgba(106, 72, 232, .08);
+  --mod: rgba(217, 119, 6, .1); --mod-b: #d97706;
+}
+
+/* ─── Reset & Base ────────────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'SF Pro Display', -apple-system, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg-0); color: var(--tx-0); overflow: hidden;
+}
+
+/* ─── Layout ──────────────────────────────────────────────────── */
+.layout {
+  display: grid;
+  grid-template-rows: 48px 1fr;
+  grid-template-columns: 54px 1fr;
+  height: 100vh;
+}
+.topbar {
+  grid-column: 1 / -1;
+  background: var(--bg-1); border-bottom: 1px solid var(--bd);
+  display: flex; align-items: center; padding: 0 16px; gap: 12px;
+}
+.rail {
+  background: var(--bg-1); border-right: 1px solid var(--bd);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 6px 0; gap: 2px; overflow-y: auto;
+}
+.ws {
+  overflow-y: auto; padding: 20px; background: var(--bg-0);
+}
+
+/* ─── Rail Buttons ────────────────────────────────────────────── */
+.rbtn {
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; cursor: pointer; font-size: 16px;
+  border: none; background: transparent; color: var(--tx-2);
+  transition: all .15s; position: relative;
+}
+.rbtn:hover { background: var(--ac-bg); color: var(--ac); }
+.rbtn.act { background: var(--ac-bg); color: var(--ac); }
+.rbtn.act::before {
+  content: ''; position: absolute; left: -7px; top: 50%;
+  transform: translateY(-50%); width: 3px; height: 18px;
+  background: var(--ac); border-radius: 2px;
+}
+
+/* ─── Form Elements ───────────────────────────────────────────── */
+.fld {
+  background: var(--bg-2); color: var(--tx-0);
+  border: 1px solid var(--bd); border-radius: 6px;
+  padding: 6px 10px; font-size: 13px; width: 100%;
+  transition: border-color .15s;
+}
+.fld:focus { outline: none; border-color: var(--ac); box-shadow: 0 0 0 2px var(--ac-bg); }
+.fld.mod { border-color: var(--mod-b); background: var(--mod); }
+
+.btn {
+  background: var(--ac); color: #fff; border: none; border-radius: 6px;
+  padding: 6px 14px; font-size: 13px; cursor: pointer;
+  transition: all .15s; font-weight: 500;
+}
+.btn:hover { background: var(--ac-h); }
+.btn-sm { padding: 4px 10px; font-size: 12px; border-radius: 5px; }
+.btn-ghost { background: transparent; color: var(--tx-1); border: 1px solid var(--bd); }
+.btn-ghost:hover { border-color: var(--bd-h); background: var(--bg-2); }
+.btn-ok { background: var(--ok); color: #000; }
+.btn-err { background: var(--err); color: #fff; }
+
+/* ─── Cards & Tags ────────────────────────────────────────────── */
+.card {
+  background: var(--bg-1); border: 1px solid var(--bd);
+  border-radius: 10px; padding: 16px;
+}
+.lbl {
+  font-size: 11px; color: var(--tx-2);
+  text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px;
+}
+.tag {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600;
+}
+.tag-ac { background: var(--ac-bg); color: var(--ac); }
+.tag-ok { background: rgba(45, 212, 160, .1); color: var(--ok); }
+.tag-warn { background: rgba(251, 191, 36, .1); color: var(--warn); }
+.badge {
+  background: var(--ac); color: #fff; border-radius: 10px;
+  font-size: 10px; padding: 1px 6px; margin-left: 6px;
+}
+
+/* ─── Tables ──────────────────────────────────────────────────── */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left; padding: 8px 10px;
+  border-bottom: 1px solid var(--bd); color: var(--tx-2);
+  font-weight: 500; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .5px;
+}
+td { padding: 6px 10px; border-bottom: 1px solid var(--bd); color: var(--tx-1); }
+tr:hover td { background: var(--bg-2); }
+
+/* ─── Panels ──────────────────────────────────────────────────── */
+.panel { display: none; }
+.panel.vis { display: block; }
+
+/* ─── Modals ──────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, .5);
+  z-index: 1000; display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  background: var(--bg-1); border: 1px solid var(--bd);
+  border-radius: 12px; padding: 24px;
+  max-width: 800px; width: 90%; max-height: 85vh; overflow-y: auto;
+}
+
+/* ─── Range Inputs ────────────────────────────────────────────── */
+input[type=range] {
+  -webkit-appearance: none; height: 4px;
+  background: var(--bd); border-radius: 2px; outline: none;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--ac); cursor: pointer;
+}
+
+/* ─── Vector Editor Canvas ────────────────────────────────────── */
+.vec-canvas {
+  background: var(--bg-2); border: 1px solid var(--bd);
+  border-radius: 8px; cursor: crosshair;
+}
+
+/* ─── Toast ───────────────────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 20px; right: 20px;
+  padding: 10px 18px; border-radius: 8px; font-size: 13px;
+  z-index: 2000; animation: fadeIn .3s;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.toast-ok { background: var(--ok); color: #000; }
+.toast-err { background: var(--err); color: #fff; }
+
+/* ─── Metric ❓ Help Icon ─────────────────────────────────────── */
+.metric-help {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--ac-bg); color: var(--ac);
+  font-size: 10px; cursor: help; flex-shrink: 0;
+  transition: background .15s;
+}
+.metric-help:hover {
+  background: var(--ac); color: #fff;
+}
+
+/* ─── Glyph Grid (Thumbnail Cards) ───────────────────────────── */
+.glyph-grid {
+  display: block;
+  position: relative;
+  border: 1px solid var(--bd); border-radius: 8px;
+  background: var(--bg-1); padding: 8px;
+  overflow-y: auto;
+}
+.glyph-grid-virtual {
+  display: block;
+  position: relative;
+  overflow-y: auto;
+}
+.glyph-row {
+  display: flex;
+  gap: 8px;
+}
+.glyph-card {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 4px; border-radius: 6px; cursor: pointer;
+  transition: all .15s;
+  flex: 1;
+  min-width: 72px;
+  max-width: 100px;
+  height: 72px;
+  border: 1px solid transparent;
+}
+.glyph-card:hover { background: var(--ac-bg); border-color: var(--ac); }
+.glyph-card.selected {
+  background: rgba(45, 212, 160, 0.1);
+  border-color: var(--ok);
+  box-shadow: 0 0 0 2px rgba(45, 212, 160, 0.3);
+}
+.glyph-thumb {
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-2); border-radius: 4px; overflow: hidden;
+}
+.glyph-thumb svg { display: block; }
+.glyph-char {
+  font-size: 24px; line-height: 1; color: var(--tx-0);
+}
+.glyph-char-font {
+  font-family: 'GlyphPreviewFont', sans-serif;
+  font-size: 26px; line-height: 1; color: var(--tx-0);
+  display: flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px;
+}
+.glyph-char-empty {
+  font-size: 16px; line-height: 1; color: var(--tx-3);
+  display: flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px;
+}
+.glyph-label {
+  font-size: 8px; color: var(--tx-2); margin-top: 2px;
+  max-width: 64px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; text-align: center;
+}
+
+/* ─── OTL Collapsible Tree ────────────────────────────────────── */
+.otl-tree-node { margin: 4px 0; }
+.otl-tree-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; background: var(--bg-2); border-radius: 6px;
+  cursor: pointer; font-size: 13px; transition: background .15s;
+  user-select: none;
+}
+.otl-tree-header:hover { background: var(--bg-3); }
+.otl-tree-arrow {
+  font-size: 10px; color: var(--tx-3);
+  transition: transform .15s; display: inline-block;
+}
+.otl-tree-arrow.open { transform: rotate(90deg); }
+.otl-tree-content {
+  padding: 4px 0 4px 20px;
+}
+
+/* ─── OTL Glyph List (rendered glyphs) ─────────────────────── */
+.otl-glyph-list {
+  max-height: 200px; overflow-y: auto;
+  background: var(--bg-1); border-radius: 4px; padding: 4px;
+}
+.otl-glyph-row {
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 6px; border-radius: 3px; font-size: 12px;
+  transition: background .1s;
+}
+.otl-glyph-row:hover { background: var(--bg-2); }
+.otl-glyph-item {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 1px 4px; background: var(--bg-2); border-radius: 3px;
+  cursor: default; font-size: 11px; color: var(--tx-1);
+  transition: background .15s;
+}
+.otl-glyph-item:hover { background: var(--ac-bg); }
+.otl-glyph-rendered {
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.glyph-mini {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; background: var(--bg-3); border-radius: 3px;
+  vertical-align: middle;
+}
+.glyph-mini svg { display: block; }
+
+/* ─── Progress Bar ───────────────────────────────────────────── */
+.progress-bar {
+  width: 100%; height: 8px; background: var(--bg-3); border-radius: 4px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%; background: var(--ac); border-radius: 4px;
+  transition: width .3s ease;
+}
+
+/* ─── Scrollbar Styling ───────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bd); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--bd-h); }
