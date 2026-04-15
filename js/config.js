@@ -2,7 +2,7 @@
  * TypeForge Pro — Config Panel
  * Scheme A | Round 1
  */
-import { $, $$, state, api, toast } from './state.js';
+import { $, $$, state, api, toast, invalidatePanelCache } from './state.js';
 import { loadNames } from './names.js';
 import { loadMetrics } from './metrics.js';
 import { loadCmap } from './cmap.js';

@@ -1,7 +1,7 @@
 /**
  * TypeForge Pro — OTL Panel (Enhanced: glyph rendering in lookups, collapsible tree)
  */
-import { $, $$, state, api, toast, getFeatureName, getScriptName, loadPlatformInfo } from './state.js';
+import { $, $$, state, api, toast, getFeatureName, getScriptName, loadPlatformInfo, getPanelCache, setPanelCache, invalidatePanelCache } from './state.js';
 
 export async function initOtl() {
   await loadPlatformInfo();
@@ -14,28 +14,62 @@ export async function initOtl() {
       loadOtl();
     });
   });
+
+  // Section sub-tabs (scripts / features / lookups)
+  $$('.otl-section-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $$('.otl-section-tab').forEach(b => b.classList.remove('act'));
+      btn.classList.add('act');
+      const section = btn.dataset.osec;
+      // Show/hide sections
+      document.querySelectorAll('.otl-section-content').forEach(el => el.classList.remove('vis'));
+      const target = document.getElementById(`otl-section-${section}`);
+      if (target) target.classList.add('vis');
+    });
+  });
 }
 
-export async function loadOtl() {
+export async function loadOtl(forceRefresh = false) {
+  const cacheKey = `otl_${state.currentOtlTab}`;
+  
+  // GDEF 和 fvar 的缓存
   if (state.currentOtlTab === 'GDEF') {
+    if (!forceRefresh) {
+      const cached = getPanelCache(cacheKey);
+      if (cached) { renderGdef(cached); return; }
+    }
     try {
       const res = await api(`/gdef/${state.SID}`);
       const data = await res.json();
+      setPanelCache(cacheKey, data);
       renderGdef(data);
     } catch (e) { $('#otlContent').innerHTML = `<p style="color:var(--tx-2)">GDEF 表不存在</p>`; }
     return;
   }
   if (state.currentOtlTab === 'fvar') {
+    if (!forceRefresh) {
+      const cached = getPanelCache(cacheKey);
+      if (cached) { renderFvar(cached); return; }
+    }
     try {
       const res = await api(`/fvar/${state.SID}`);
       const data = await res.json();
+      setPanelCache(cacheKey, data);
       renderFvar(data);
     } catch (e) { $('#otlContent').innerHTML = `<p style="color:var(--tx-2)">fvar 表不存在 (非变量字体)</p>`; }
     return;
   }
+
+  // GSUB / GPOS — 优先使用缓存
+  if (!forceRefresh) {
+    const cached = getPanelCache(cacheKey);
+    if (cached) { renderOtlTree(cached); return; }
+  }
+
   try {
     const res = await api(`/otl/${state.SID}/${state.currentOtlTab}`);
     const data = await res.json();
+    setPanelCache(cacheKey, data);
     renderOtlTree(data);
   } catch (e) {
     $('#otlContent').innerHTML = `<p style="color:var(--tx-2)">${state.currentOtlTab} 表不存在</p>`;
@@ -88,13 +122,21 @@ function glyphMiniSvg(glyphName, svgData, emSize = 1000) {
   </span>`;
 }
 
-/** Render OTL as collapsible tree */
+/** Render OTL as sectioned tree (scripts / features / lookups) */
 function renderOtlTree(data) {
+  // Show section tabs (only for GSUB/GPOS)
+  const sectionTabs = $('#otlSectionTabs');
+  if (sectionTabs) {
+    sectionTabs.style.display = (state.currentOtlTab === 'GSUB' || state.currentOtlTab === 'GPOS')
+      ? 'flex' : 'none';
+  }
+
   let html = '';
 
-  // ─── Scripts tree ───
-  html += `<div class="card" style="margin-bottom:12px">
-    <h3 style="font-size:14px;font-weight:600;margin-bottom:8px">📂 脚本与语言系统</h3>`;
+  // ─── Section: Scripts ───
+  html += `<div class="otl-section-content vis" id="otl-section-scripts">
+    <div class="card" style="margin-bottom:12px">
+      <h3 style="font-size:14px;font-weight:600;margin-bottom:8px">📂 脚本与语言系统</h3>`;
   if (data.scripts && data.scripts.length) {
     for (const s of data.scripts) {
       const scriptName = getScriptName(s.tag);
@@ -121,11 +163,12 @@ function renderOtlTree(data) {
   } else {
     html += '<p style="color:var(--tx-2);font-size:12px">无脚本记录</p>';
   }
-  html += '</div>';
+  html += '</div></div>';
 
-  // ─── Features tree ───
-  html += `<div class="card" style="margin-bottom:12px">
-    <h3 style="font-size:14px;font-weight:600;margin-bottom:8px">🏷️ 特性 <span class="badge">${(data.features || []).length}</span></h3>`;
+  // ─── Section: Features ───
+  html += `<div class="otl-section-content" id="otl-section-features">
+    <div class="card" style="margin-bottom:12px">
+      <h3 style="font-size:14px;font-weight:600;margin-bottom:8px">🏷️ 特性 <span class="badge">${(data.features || []).length}</span></h3>`;
   if (data.features && data.features.length) {
     for (const f of data.features) {
       const featureDesc = getFeatureName(f.tag);
@@ -145,11 +188,13 @@ function renderOtlTree(data) {
       );
     }
   }
-  html += '</div>';
+  html += `<div style="margin-top:12px"><button class="btn btn-sm" id="addFeatureBtn">+ 添加特性</button></div>`;
+  html += '</div></div>';
 
-  // ─── Lookups (with glyph rendering) ───
-  html += `<div class="card" style="margin-bottom:12px">
-    <h3 style="font-size:14px;font-weight:600;margin-bottom:8px">🔍 查找表 <span class="badge">${(data.lookups || []).length}</span></h3>`;
+  // ─── Section: Lookups ───
+  html += `<div class="otl-section-content" id="otl-section-lookups">
+    <div class="card" style="margin-bottom:12px">
+      <h3 style="font-size:14px;font-weight:600;margin-bottom:8px">🔍 查找表 <span class="badge">${(data.lookups || []).length}</span></h3>`;
   if (data.lookups && data.lookups.length) {
     for (const lk of data.lookups) {
       const typeLabelZh = getOtlTypeLabelZh(state.currentOtlTab, lk.type);
@@ -174,7 +219,6 @@ function renderOtlTree(data) {
           detail += '<div class="otl-glyph-list">';
           for (const [first, ligs] of Object.entries(st.ligatures)) {
             for (const lig of ligs) {
-              const inputGlyphs = [first, ...lig.components].join(' + ');
               detail += `<div class="otl-glyph-row">
                 <span class="otl-glyph-item" data-glyph="${first}">${first}</span>
                 <span style="color:var(--tx-3);margin:0 2px">+</span>
@@ -214,13 +258,8 @@ function renderOtlTree(data) {
       );
     }
   }
-  html += '</div>';
-
-  // Add buttons
-  html += `<div style="margin-top:12px;display:flex;gap:8px">
-    <button class="btn btn-sm" id="addFeatureBtn">+ 添加特性</button>
-    <button class="btn btn-sm" id="addLookupBtn">+ 添加 Lookup</button>
-  </div>`;
+  html += `<div style="margin-top:12px"><button class="btn btn-sm" id="addLookupBtn">+ 添加 Lookup</button></div>`;
+  html += '</div></div>';
 
   $('#otlContent').innerHTML = html;
 
@@ -237,7 +276,7 @@ function renderOtlTree(data) {
     });
   });
 
-  // Load SVG thumbnails for all referenced glyphs
+  // Load SVG thumbnails only for currently visible section
   loadOtlGlyphSvgs();
 
   // Add feature button
@@ -252,7 +291,8 @@ function renderOtlTree(data) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ featureTag: tag, lookupIndices: [+lkIdx] })
       });
-      await loadOtl();
+      invalidatePanelCache('otl_');
+      await loadOtl(true);
       toast('特性已添加');
     } catch (e) { toast(e.message, 'err'); }
   });
@@ -266,7 +306,8 @@ function renderOtlTree(data) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lookupType: +lt })
       });
-      await loadOtl();
+      invalidatePanelCache('otl_');
+      await loadOtl(true);
       toast('Lookup 已添加');
     } catch (e) { toast(e.message, 'err'); }
   });
@@ -290,7 +331,8 @@ function renderOtlTree(data) {
       if (!confirm(`确定删除特性 ${tag}？`)) return;
       try {
         await api(`/otl/${state.SID}/${state.currentOtlTab}/feature/${tag}`, { method: 'DELETE' });
-        await loadOtl();
+        invalidatePanelCache('otl_');
+        await loadOtl(true);
         toast(`特性 ${tag} 已删除`);
       } catch (e) { toast(e.message, 'err'); }
     });
@@ -303,7 +345,8 @@ function renderOtlTree(data) {
       if (!confirm(`确定删除 Lookup ${idx}？`)) return;
       try {
         await api(`/otl/${state.SID}/${state.currentOtlTab}/lookup/${idx}`, { method: 'DELETE' });
-        await loadOtl();
+        invalidatePanelCache('otl_');
+        await loadOtl(true);
         toast(`Lookup ${idx} 已删除`);
       } catch (e) { toast(e.message, 'err'); }
     });
@@ -418,7 +461,8 @@ function showLookupEditModal(lookup) {
     }
     toast('Lookup 已更新');
     overlay.remove();
-    loadOtl();
+    invalidatePanelCache('otl_');
+    loadOtl(true);
   });
 }
 

@@ -492,6 +492,8 @@ function renderVecEditor() {
 
   // ── 字形轮廓 ─────────────────────────────────────────────────
   let hasPath = false;
+  // 优先用 svgPath（后端 SVGPathPen 生成，正确处理 CFF/CFF2 三次贝塞尔）
+  // 仅在 svgPath 不存在时 fallback 到 TrueType 点数据
   if (vecState.svgPath) {
     hasPath = drawGlyphFromSVG(ps);
   }
@@ -540,27 +542,33 @@ function renderVecEditor() {
 function drawGlyphFromSVG(ps) {
   if (!vecState.svgPath) return false;
 
-  // 方法1：pathData
+  // svgPath 是后端 SVGPathPen 生成的一次性完整路径
+  // 对于 CFF 字体（如中文 TTF），svgPath 包含正确三次贝塞尔曲线
+  // 对于复合字形，svgPath 包含展开后的路径
+  const pathStr = vecState.svgPath;
+  if (!pathStr || pathStr.length < 3) return false;
+
+  // Paper.js pathData 支持完整的 SVG path 语法（M/L/C/Q/Z/S/A/T/H/V）
+  // scale(1,-1) 翻转 Y 轴（字体坐标系 Y 向上 → Canvas Y 向下）
   try {
     const mainPath = new ps.Path();
-    mainPath.pathData = vecState.svgPath;
+    mainPath.pathData = pathStr;
     mainPath.scale(1, -1, new ps.Point(0, 0));
     mainPath.fillColor = new ps.Color(0.486, 0.361, 0.988, 0.15);
     mainPath.strokeColor = '#7c5cfc';
     mainPath.strokeWidth = 1.5;
+    mainPath.closed = true;
     vecState.mainPathItems.push(mainPath);
-    console.log('[Vector] Path via pathData, segs:', mainPath.segments?.length);
     return true;
   } catch (e1) {
-    console.warn('[Vector] pathData failed:', e1.message);
+    console.warn('[Vector] pathData failed, trying manual parse:', e1.message);
   }
 
-  // 方法2：手动解析
+  // Fallback: 手动解析
   try {
-    const segments = parseSVGPath(vecState.svgPath);
+    const segments = parseSVGPath(pathStr);
     if (segments.length > 0) {
       const path = new ps.Path();
-      path.closed = true;
       for (const seg of segments) {
         if (seg.type === 'M') path.moveTo([seg.x, -seg.y]);
         else if (seg.type === 'L') path.lineTo([seg.x, -seg.y]);
@@ -572,7 +580,6 @@ function drawGlyphFromSVG(ps) {
       path.strokeColor = '#7c5cfc';
       path.strokeWidth = 1.5;
       vecState.mainPathItems.push(path);
-      console.log('[Vector] Path via manual parsing');
       return true;
     }
   } catch (e2) {
@@ -795,8 +802,12 @@ function updateGlyphOutlineLive(ps) {
   vecState.mainPathItems = [];
   vecState.handleLineItems = [];
 
-  // 重新绘制路径
-  if (vecState.points.length > 0 && vecState.endPts.length > 0) {
+  // 重新绘制路径（优先 svgPath）
+  let hasPath = false;
+  if (vecState.svgPath) {
+    hasPath = drawGlyphFromSVG(ps);
+  }
+  if (!hasPath && vecState.points.length > 0 && vecState.endPts.length > 0) {
     drawGlyphFromPoints(ps);
   }
 

@@ -19,6 +19,42 @@ let loadedConfig = null;
 // Platform info (loaded once)
 let platformInfo = null;  // { platforms, macLanguages, winLanguages, otFeatures, otlScripts, metricDescriptions }
 
+// ─── Panel Data Cache ────────────────────────────────────────
+// 字体打开后一次性提取所有面板数据，切换页面时直接使用缓存
+const panelCache = {};
+
+/**
+ * Get cached panel data. Returns null if not cached.
+ * @param {string} key - Cache key (e.g. 'otl_GSUB', 'metrics_hhea')
+ */
+function getPanelCache(key) {
+  if (panelCache[key]) return panelCache[key].data;
+  return null;
+}
+
+/**
+ * Set panel cache data.
+ * @param {string} key - Cache key
+ * @param {*} data - Data to cache
+ */
+function setPanelCache(key, data) {
+  panelCache[key] = { data, time: Date.now() };
+}
+
+/**
+ * Invalidate specific or all panel cache entries.
+ * @param {string} [prefix] - If provided, only invalidate entries starting with this prefix
+ */
+function invalidatePanelCache(prefix) {
+  if (!prefix) {
+    Object.keys(panelCache).forEach(k => delete panelCache[k]);
+  } else {
+    Object.keys(panelCache).forEach(k => {
+      if (k.startsWith(prefix)) delete panelCache[k];
+    });
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
@@ -88,7 +124,8 @@ export {
   API, SID, fontInfo, nameRecords, cmapData, glyphsList,
   currentMetricTab, currentOtlTab, loadedConfig, platformInfo,
   $, $$, toast, api, loadPlatformInfo,
-  getPlatformName, getLanguageName, getFeatureName, getScriptName, getMetricDescription
+  getPlatformName, getLanguageName, getFeatureName, getScriptName, getMetricDescription,
+  getPanelCache, setPanelCache, invalidatePanelCache
 };
 
 // Mutable state setters (exported as let-alike via object)
@@ -119,4 +156,5 @@ export function resetState() {
   currentMetricTab = 'hhea';
   currentOtlTab = 'GSUB';
   loadedConfig = null;
+  invalidatePanelCache();
 }

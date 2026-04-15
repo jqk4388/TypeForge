@@ -411,6 +411,126 @@ input[type=range]::-webkit-slider-thumb {
 .glyph-grid-virtual { position: relative; }
 .glyph-sizer { position: absolute; top: 0; left: 0; width: 1px; pointer-events: none; }
 
+/* ─── Preview Box (direct DOM, no iframe) ──────────────────── */
+.preview-box {
+  height: 300px;
+  overflow: auto;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  background: #fff;
+  padding: 20px;
+}
+.preview-text {
+  font-family: 'PreviewFont', serif;
+  font-size: var(--pf-size, 36px);
+  line-height: var(--pf-lineH, 1.4);
+  letter-spacing: var(--pf-ls, 0);
+  word-spacing: var(--pf-ws, 0);
+  font-feature-settings: var(--pf-features, normal);
+  font-variation-settings: var(--pf-fvar, normal);
+  font-language-override: var(--pf-lang, normal);
+  word-break: break-all;
+  overflow-wrap: break-word;
+  color: #000;
+  min-height: 100%;
+}
+
+/* ─── OT Feature Toggle Chips ──────────────────────────────── */
+.feat-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border: 1px solid var(--bd);
+  border-radius: 4px;
+  background: transparent;
+  transition: all .12s;
+  user-select: none;
+}
+.feat-toggle input {
+  accent-color: var(--ac);
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+}
+.feat-toggle span {
+  color: var(--tx-2);
+  font-weight: 500;
+}
+.feat-toggle.is-on {
+  border-color: var(--ac);
+  background: var(--ac-bg);
+}
+.feat-toggle.is-on span {
+  color: var(--ac);
+}
+
+/* ─── Sidebar Rail expanded labels ─────────────────────────── */
+.rail {
+  transition: width .2s ease;
+  min-width: 54px;
+  overflow: visible;
+}
+.rail:hover {
+  width: 140px;
+}
+.rail:hover .rail-label {
+  opacity: 1;
+  max-width: 80px;
+  margin-left: 4px;
+}
+.rail-label {
+  font-size: 11px;
+  color: var(--tx-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  max-width: 0;
+  transition: opacity .2s ease, max-width .2s ease;
+  pointer-events: none;
+}
+.rbtn {
+  width: 38px;
+  min-width: 38px;
+  justify-content: center;
+  transition: all .15s;
+}
+
+/* ─── OTL Tab Groups (lookups vs features) ────────────────── */
+.otl-section-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.otl-section-tab {
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid var(--bd);
+  background: transparent;
+  color: var(--tx-2);
+  transition: all .12s;
+}
+.otl-section-tab:hover {
+  border-color: var(--bd-h);
+  background: var(--bg-2);
+}
+.otl-section-tab.act {
+  background: var(--ac-bg);
+  color: var(--ac);
+  border-color: var(--ac);
+}
+.otl-section-content {
+  display: none;
+}
+.otl-section-content.vis {
+  display: block;
+}
+
 /* ─── OTL glyph mini SVG positioning ─────────────────────────── */
 .glyph-mini svg { display: inline-block; vertical-align: middle; }
 

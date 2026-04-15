@@ -1,12 +1,12 @@
 /**
- * TypeForge Pro — Preview Panel v2
+ * TypeForge Pro — Preview Panel v3
  *
- * 改进：
- * 1. 防抖：输入变化 300ms 后才更新 iframe，避免卡顿
- * 2. 横排修复：iframe min-height 改为 auto + 充足 padding，内容不被截断
- * 3. OpenType 特性开关增强：分组显示、全开/全关、常用特性置顶
- * 4. 丰富控件：预设文本、字间距、字重/字宽滑块、OpenType 语言
- * 5. 变量字体轴控制（如果有 fvar）
+ * 核心优化：
+ * 1. 【秒级 OT 特性】不再用 iframe srcdoc，直接在主文档注入 @font-face + 用 CSS 变量控制，
+ *    OT 特性开关仅改一个 CSS 自定义属性 → 浏览器瞬间重绘，零网络请求
+ * 2. 横排/竖排各一个 div（隐藏在 iframe 沙盒内的容器），内容变更走 CSS 变量
+ * 3. 预设文本、字间距、字重/字宽滑块、OpenType 语言
+ * 4. 变量字体轴控制（如果有 fvar）
  */
 import { $, $$, state, api, toast, getFeatureName, loadPlatformInfo } from './state.js';
 
@@ -14,9 +14,7 @@ let previewFontUrl = null;
 let otfFeatures = [];
 let enabledFeatures = new Set();
 let fvarAxes = [];
-let updateTimer = null;
-let lastSrcdocH = '';
-let lastSrcdocV = '';
+let _fontFaceLoaded = false;
 
 // OpenType 特性分组
 const FEATURE_GROUPS = {
@@ -51,19 +49,18 @@ export async function initPreview() {
   const wordSpacing = $('#previewWordSpacing');
   const openTypeLang = $('#previewOTLang');
 
-  // 所有输入变化都走防抖更新
-  const debouncedUpdate = () => {
-    clearTimeout(updateTimer);
-    updateTimer = setTimeout(updatePreview, 300);
-  };
-
-  textInput?.addEventListener('input', debouncedUpdate);
-  sizeInput?.addEventListener('input', debouncedUpdate);
-  lineHInput?.addEventListener('input', debouncedUpdate);
-  bgSelect?.addEventListener('change', debouncedUpdate);
-  letterSpacing?.addEventListener('input', debouncedUpdate);
-  wordSpacing?.addEventListener('input', debouncedUpdate);
-  openTypeLang?.addEventListener('change', debouncedUpdate);
+  // 文本、字号、行距等直接更新 CSS 变量，不走防抖
+  textInput?.addEventListener('input', () => applyPreviewText(textInput.value));
+  sizeInput?.addEventListener('input', () => {
+    const val = $('#previewSizeVal');
+    if (val) val.textContent = sizeInput.value + 'px';
+    applyPreviewStyle();
+  });
+  lineHInput?.addEventListener('input', applyPreviewStyle);
+  bgSelect?.addEventListener('change', () => applyPreviewBg(bgSelect.value));
+  letterSpacing?.addEventListener('input', applyPreviewStyle);
+  wordSpacing?.addEventListener('input', applyPreviewStyle);
+  openTypeLang?.addEventListener('change', applyPreviewStyle);
 
   // 预设文本按钮
   $$('.preset-text-btn').forEach(btn => {
@@ -71,28 +68,27 @@ export async function initPreview() {
       const key = btn.dataset.preset;
       if (PRESET_TEXTS[key]) {
         textInput.value = PRESET_TEXTS[key];
-        debouncedUpdate();
+        applyPreviewText(textInput.value);
       }
     });
-  });
-
-  // 字号实时显示
-  sizeInput?.addEventListener('input', () => {
-    const val = $('#previewSizeVal');
-    if (val) val.textContent = sizeInput.value + 'px';
   });
 }
 
 export async function loadPreviewFont() {
   if (!state.SID) return;
-  // Force a fresh URL each time to bust browser font cache
-  previewFontUrl = `${location.origin}/api/preview/${state.SID}?t=${Date.now()}`;
+  previewFontUrl = `${location.origin}/api/preview/${state.SID}`;
+
+  // 注入 @font-face 到主文档（只做一次）
+  await injectFontFace(previewFontUrl);
+
+  // 加载 OT 特性列表
   try {
     const res = await api(`/otl-features/${state.SID}`);
     const data = await res.json();
     otfFeatures = data.features || [];
     renderOtFeatureToggles();
   } catch (e) { }
+
   // 加载变量字体轴
   try {
     const res = await api(`/fvar/${state.SID}`);
@@ -100,9 +96,114 @@ export async function loadPreviewFont() {
     fvarAxes = data.axes || [];
     renderFvarControls();
   } catch (e) { fvarAxes = []; }
-  updatePreview();
+
+  // 首次渲染预览
+  applyPreviewText($('#previewText')?.value || '永字八法 龍鳳體 TypeForge 0123');
+  applyPreviewStyle();
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   @font-face 注入（一次性）
+   ══════════════════════════════════════════════════════════════════ */
+async function injectFontFace(url) {
+  // 移除旧 font-face
+  const old = document.getElementById('dynamic-font-face');
+  if (old) old.remove();
+
+  const style = document.createElement('style');
+  style.id = 'dynamic-font-face';
+  style.textContent = `
+    @font-face {
+      font-family: 'PreviewFont';
+      src: url('${url}') format('opentype'),
+           url('${url}') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+      font-display: block;
+    }
+  `;
+  document.head.appendChild(style);
+
+  // 等待字体加载就绪
+  try {
+    await document.fonts.load('48px "PreviewFont"');
+  } catch (e) { /* fallback: 等一帧 */ }
+  _fontFaceLoaded = true;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   直接 DOM 操作：不走 iframe
+   ══════════════════════════════════════════════════════════════════ */
+function applyPreviewText(text) {
+  const h = $('#previewContentH');
+  const v = $('#previewContentV');
+  if (h) h.textContent = text;
+  if (v) v.textContent = text;
+}
+
+function applyPreviewStyle() {
+  const size = $('#previewSize')?.value || '36';
+  const lineH = $('#previewLineH')?.value || '1.4';
+  const ls = $('#previewLetterSpacing')?.value || '0';
+  const ws = $('#previewWordSpacing')?.value || '0';
+  const otLang = $('#previewOTLang')?.value || '';
+
+  // 构建 font-feature-settings
+  let featureCSS = '';
+  if (enabledFeatures.size > 0) {
+    featureCSS = Array.from(enabledFeatures).map(f => `"${f}" 1`).join(', ');
+  }
+
+  // 构建 font-variation-settings
+  let fvarCSS = '';
+  const container = $('#fvarControls');
+  if (container && fvarAxes.length) {
+    const sliders = container.querySelectorAll('input[type=range][data-axis]');
+    const parts = [];
+    for (const slider of sliders) {
+      const tag = slider.dataset.axis;
+      const val = parseFloat(slider.value);
+      const axis = fvarAxes.find(a => a.tag === tag);
+      if (axis && val !== axis.default) {
+        parts.push(`"${tag}" ${val}`);
+      }
+    }
+    if (parts.length) fvarCSS = parts.join(', ');
+  }
+
+  // 通过 CSS 变量应用到预览容器
+  const cssVars = {
+    '--pf-size': size + 'px',
+    '--pf-lineH': lineH,
+    '--pf-ls': ls + 'em',
+    '--pf-ws': ws + 'em',
+    '--pf-features': featureCSS,
+    '--pf-fvar': fvarCSS,
+    '--pf-lang': otLang ? `"${otLang}"` : '',
+  };
+
+  for (const [k, v] of Object.entries(cssVars)) {
+    document.documentElement.style.setProperty(k, v);
+  }
+}
+
+function applyPreviewBg(bg) {
+  const textColor = (bg === '#000' || bg === '#333') ? '#fff' : '#000';
+  const h = $('#previewContentH');
+  const v = $('#previewContentV');
+  if (h) {
+    h.parentElement.style.background = bg;
+    h.style.color = textColor;
+  }
+  if (v) {
+    v.parentElement.style.background = bg;
+    v.style.color = textColor;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   变量字体轴控件
+   ══════════════════════════════════════════════════════════════════ */
 function renderFvarControls() {
   const container = $('#fvarControls');
   if (!container) return;
@@ -127,12 +228,14 @@ function renderFvarControls() {
     slider.addEventListener('input', () => {
       const val = parseFloat(slider.value);
       document.getElementById(`fvarVal_${axis.tag}`).textContent = Math.round(val);
-      clearTimeout(updateTimer);
-      updateTimer = setTimeout(updatePreview, 200);
+      applyPreviewStyle();
     });
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   OT 特性开关（核心：toggle 只改 Set + 调 applyPreviewStyle）
+   ══════════════════════════════════════════════════════════════════ */
 function renderOtFeatureToggles() {
   const container = $('#otFeatureToggles');
   if (!container) return;
@@ -172,12 +275,7 @@ function renderOtFeatureToggles() {
   for (const [group, features] of Object.entries(grouped)) {
     html += `<div style="margin-bottom:6px"><span style="font-size:10px;color:var(--tx-3);text-transform:uppercase;letter-spacing:.5px">${group}</span><div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px">`;
     for (const f of features) {
-      const featureDesc = getFeatureName(f.tag);
-      const isOn = enabledFeatures.has(f.tag);
-      html += `<label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;cursor:pointer;padding:2px 6px;border:1px solid ${isOn ? 'var(--ac)' : 'var(--bd)'};border-radius:4px;background:${isOn ? 'var(--ac-bg)' : 'transparent'}" class="feat-toggle" data-tag="${f.tag}" title="${featureDesc !== f.tag ? featureDesc : ''} (${f.table})">
-        <input type="checkbox" ${isOn ? 'checked' : ''} style="accent-color:var(--ac);width:12px;height:12px">
-        <span style="color:${isOn ? 'var(--ac)' : 'var(--tx-2)'};font-weight:500">${f.tag}</span>
-      </label>`;
+      html += renderToggleChip(f);
     }
     html += '</div></div>';
   }
@@ -186,12 +284,7 @@ function renderOtFeatureToggles() {
   if (ungrouped.length) {
     html += `<div style="margin-bottom:6px"><span style="font-size:10px;color:var(--tx-3);text-transform:uppercase;letter-spacing:.5px">其他</span><div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px">`;
     for (const f of ungrouped) {
-      const featureDesc = getFeatureName(f.tag);
-      const isOn = enabledFeatures.has(f.tag);
-      html += `<label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;cursor:pointer;padding:2px 6px;border:1px solid ${isOn ? 'var(--ac)' : 'var(--bd)'};border-radius:4px;background:${isOn ? 'var(--ac-bg)' : 'transparent'}" class="feat-toggle" data-tag="${f.tag}" title="${featureDesc !== f.tag ? featureDesc : ''} (${f.table})">
-        <input type="checkbox" ${isOn ? 'checked' : ''} style="accent-color:var(--ac);width:12px;height:12px">
-        <span style="color:${isOn ? 'var(--ac)' : 'var(--tx-2)'};font-weight:500">${f.tag}</span>
-      </label>`;
+      html += renderToggleChip(f);
     }
     html += '</div></div>';
   }
@@ -206,153 +299,52 @@ function renderOtFeatureToggles() {
       e.preventDefault();
       cb.checked = !cb.checked;
       if (cb.checked) enabledFeatures.add(tag); else enabledFeatures.delete(tag);
-      // 更新样式
-      label.style.borderColor = cb.checked ? 'var(--ac)' : 'var(--bd)';
-      label.style.background = cb.checked ? 'var(--ac-bg)' : 'transparent';
-      label.querySelector('span').style.color = cb.checked ? 'var(--ac)' : 'var(--tx-2)';
+      refreshChipStyle(label, cb.checked);
       updateFeatCount();
-      clearTimeout(updateTimer);
-      updateTimer = setTimeout(updatePreview, 150);
+      applyPreviewStyle(); // ← 秒级：只改 CSS 变量
     });
   });
 
   $('#featAllOn')?.addEventListener('click', () => {
     otfFeatures.forEach(f => enabledFeatures.add(f.tag));
-    refreshToggleStyles();
+    refreshAllChipStyles();
     updateFeatCount();
-    clearTimeout(updateTimer);
-    updateTimer = setTimeout(updatePreview, 150);
+    applyPreviewStyle();
   });
 
   $('#featAllOff')?.addEventListener('click', () => {
     enabledFeatures.clear();
-    refreshToggleStyles();
+    refreshAllChipStyles();
     updateFeatCount();
-    clearTimeout(updateTimer);
-    updateTimer = setTimeout(updatePreview, 150);
+    applyPreviewStyle();
   });
-
-  function refreshToggleStyles() {
-    container.querySelectorAll('.feat-toggle').forEach(label => {
-      const tag = label.dataset.tag;
-      const isOn = enabledFeatures.has(tag);
-      const cb = label.querySelector('input');
-      cb.checked = isOn;
-      label.style.borderColor = isOn ? 'var(--ac)' : 'var(--bd)';
-      label.style.background = isOn ? 'var(--ac-bg)' : 'transparent';
-      label.querySelector('span').style.color = isOn ? 'var(--ac)' : 'var(--tx-2)';
-    });
-  }
-
-  function updateFeatCount() {
-    const el = $('#featCount');
-    if (el) el.textContent = `${enabledFeatures.size}/${otfFeatures.length}`;
-  }
 }
 
-function getFvarCSS() {
-  if (!fvarAxes.length) return '';
-  const container = $('#fvarControls');
-  if (!container) return '';
-  const sliders = container.querySelectorAll('input[type=range][data-axis]');
-  if (!sliders.length) return '';
-  const parts = [];
-  for (const slider of sliders) {
-    const tag = slider.dataset.axis;
-    const val = parseFloat(slider.value);
-    const axis = fvarAxes.find(a => a.tag === tag);
-    if (axis && val !== axis.default) {
-      parts.push(`"${tag}" ${val}`);
-    }
-  }
-  return parts.length ? `font-variation-settings: ${parts.join(', ')};` : '';
+function renderToggleChip(f) {
+  const featureDesc = getFeatureName(f.tag);
+  const isOn = enabledFeatures.has(f.tag);
+  return `<label class="feat-toggle${isOn ? ' is-on' : ''}" data-tag="${f.tag}" title="${featureDesc !== f.tag ? featureDesc : ''} (${f.table})">
+    <input type="checkbox" ${isOn ? 'checked' : ''}>
+    <span>${f.tag}</span>
+  </label>`;
 }
 
-/**
- * Build an iframe srcdoc so the @font-face is isolated and always loads.
- * Using absolute URL so the iframe can fetch from the same origin.
- */
-function buildIframeSrcdoc(text, size, lineH, bg, writingMode) {
-  if (!previewFontUrl) return `<html><body style="margin:16px;color:#888">请先加载字体</body></html>`;
-
-  let featureCSS = '';
-  if (enabledFeatures.size > 0) {
-    featureCSS = 'font-feature-settings:' +
-      Array.from(enabledFeatures).map(f => `"${f}" 1`).join(', ') + ';';
-  }
-
-  const fvarCSS = getFvarCSS();
-  const letterSpacing = $('#previewLetterSpacing')?.value || '0';
-  const wordSpacing = $('#previewWordSpacing')?.value || '0';
-  const otLang = $('#previewOTLang')?.value || '';
-  const textColor = (bg === '#000' || bg === '#333') ? '#fff' : '#000';
-
-  // 横排用 auto height + 充足 padding，确保内容不被截断
-  const bodyHeight = writingMode === 'vertical-rl' ? 'min-height: 100vh;' : 'min-height: 100%;';
-
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<style>
-@font-face {
-  font-family: 'PreviewFont';
-  src: url('${previewFontUrl}') format('opentype'),
-       url('${previewFontUrl}') format('truetype');
-  font-weight: normal;
-  font-style: normal;
-  font-display: block;
-}
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html { height: 100%; }
-body {
-  font-family: 'PreviewFont', serif;
-  font-size: ${size}px;
-  line-height: ${lineH};
-  background: ${bg};
-  color: ${textColor};
-  padding: 20px;
-  writing-mode: ${writingMode};
-  word-break: break-all;
-  overflow-wrap: break-word;
-  ${bodyHeight}
-  ${featureCSS}
-  ${fvarCSS}
-  letter-spacing: ${letterSpacing}em;
-  word-spacing: ${wordSpacing}em;
-  ${otLang ? `font-language-override: "${otLang}";` : ''}
-}
-</style>
-</head><body>${escHtml(text)}</body></html>`;
+function refreshChipStyle(label, isOn) {
+  label.classList.toggle('is-on', isOn);
+  const cb = label.querySelector('input');
+  cb.checked = isOn;
 }
 
-function escHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+function refreshAllChipStyles() {
+  const container = $('#otFeatureToggles');
+  container?.querySelectorAll('.feat-toggle').forEach(label => {
+    const tag = label.dataset.tag;
+    const isOn = enabledFeatures.has(tag);
+    refreshChipStyle(label, isOn);
+  });
 }
 
-function setIframeContent(iframeId, srcdoc) {
-  let el = document.getElementById(iframeId);
-  if (!el) return;
-  // 避免重复设置相同内容（减少 iframe 重绘）
-  if (iframeId === 'previewIframeH' && srcdoc === lastSrcdocH) return;
-  if (iframeId === 'previewIframeV' && srcdoc === lastSrcdocV) return;
-  if (iframeId === 'previewIframeH') lastSrcdocH = srcdoc;
-  else lastSrcdocV = srcdoc;
-  el.srcdoc = srcdoc;
-}
-
-function updatePreview() {
-  if (!previewFontUrl) return;
-  const text = $('#previewText')?.value || '';
-  const size = $('#previewSize')?.value || '36';
-  const lineH = $('#previewLineH')?.value || '1.4';
-  const bg = $('#previewBg')?.value || '#fff';
-
-  const sizeVal = $('#previewSizeVal');
-  if (sizeVal) sizeVal.textContent = size + 'px';
-
-  lastSrcdocH = '';
-  lastSrcdocV = '';
-  setIframeContent('previewIframeH', buildIframeSrcdoc(text, size, lineH, bg, 'horizontal-tb'));
-  setIframeContent('previewIframeV', buildIframeSrcdoc(text, size, lineH, bg, 'vertical-rl'));
+function updateFeatCount() {
+  const el = $('#featCount');
+  if (el) el.textContent = `${enabledFeatures.size}/${otfFeatures.length}`;
 }

@@ -25,16 +25,16 @@
 
   <!-- Rail -->
   <nav class="rail">
-    <button class="rbtn act" data-panel="overview" title="字体总览">📋</button>
-    <button class="rbtn" data-panel="names" title="名称表">🏷️</button>
-    <button class="rbtn" data-panel="metrics" title="度量值">📏</button>
-    <button class="rbtn" data-panel="cmap" title="字符映射">🔤</button>
-    <button class="rbtn" data-panel="glyphs" title="字形浏览">✏️</button>
-    <button class="rbtn" data-panel="vector" title="矢量编辑">🖌️</button>
-    <button class="rbtn" data-panel="otl" title="OpenType 特性">⚙️</button>
-    <button class="rbtn" data-panel="preview" title="字体预览">👁️</button>
-    <button class="rbtn" data-panel="config" title="配置管理">📦</button>
-    <button class="rbtn" data-panel="tools" title="工具">🔧</button>
+    <button class="rbtn act" data-panel="overview" title="字体总览">📋<span class="rail-label">总览</span></button>
+    <button class="rbtn" data-panel="names" title="名称表">🏷️<span class="rail-label">名称表</span></button>
+    <button class="rbtn" data-panel="metrics" title="度量值">📏<span class="rail-label">度量值</span></button>
+    <button class="rbtn" data-panel="cmap" title="字符映射">🔤<span class="rail-label">字符映射</span></button>
+    <button class="rbtn" data-panel="glyphs" title="字形浏览">✏️<span class="rail-label">字形浏览</span></button>
+    <button class="rbtn" data-panel="vector" title="矢量编辑">🖌️<span class="rail-label">矢量编辑</span></button>
+    <button class="rbtn" data-panel="otl" title="OpenType 特性">⚙️<span class="rail-label">OT 特性</span></button>
+    <button class="rbtn" data-panel="preview" title="字体预览">👁️<span class="rail-label">字体预览</span></button>
+    <button class="rbtn" data-panel="config" title="配置管理">📦<span class="rail-label">配置管理</span></button>
+    <button class="rbtn" data-panel="tools" title="工具">🔧<span class="rail-label">工具箱</span></button>
   </nav>
 
   <!-- Workspace -->
@@ -171,6 +171,12 @@
         <button class="btn-ghost btn-sm otl-tab" data-otab="GDEF">GDEF</button>
         <button class="btn-ghost btn-sm otl-tab" data-otab="fvar">fvar</button>
       </div>
+      <!-- Section sub-tabs: 脚本/特性/查找表 -->
+      <div id="otlSectionTabs" class="otl-section-tabs" style="display:none">
+        <button class="otl-section-tab act" data-osec="scripts">📂 脚本系统</button>
+        <button class="otl-section-tab" data-osec="features">🏷️ 特性</button>
+        <button class="otl-section-tab" data-osec="lookups">🔍 查找表</button>
+      </div>
       <div id="otlContent" class="card">
         <p style="color:var(--tx-2)">加载字体后查看 OpenType 排版表</p>
       </div>
@@ -223,15 +229,19 @@
         </div>
       </div>
 
-      <!-- 横排 + 竖排 -->
+      <!-- 横排 + 竖排（直接 DOM，不走 iframe，秒级响应） -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div>
           <div class="lbl" style="margin-bottom:6px">横排 <span class="tag tag-ok">horizontal-tb</span></div>
-          <iframe id="previewIframeH" style="width:100%;height:300px;border:1px solid var(--bd);border-radius:8px;background:#fff" sandbox="allow-same-origin allow-scripts"></iframe>
+          <div class="preview-box" id="previewBoxH">
+            <div class="preview-text" id="previewContentH" style="writing-mode:horizontal-tb">加载字体后预览</div>
+          </div>
         </div>
         <div>
           <div class="lbl" style="margin-bottom:6px">竖排 <span class="tag tag-warn">vertical-rl</span></div>
-          <iframe id="previewIframeV" style="width:100%;height:300px;border:1px solid var(--bd);border-radius:8px;background:#fff" sandbox="allow-same-origin allow-scripts"></iframe>
+          <div class="preview-box" id="previewBoxV">
+            <div class="preview-text" id="previewContentV" style="writing-mode:vertical-rl">加载字体后预览</div>
+          </div>
         </div>
       </div>
     </div>

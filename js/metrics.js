@@ -3,7 +3,7 @@
  * Scheme A | Round 1
  * Change: each metric field has ❓ icon with Chinese description tooltip
  */
-import { $, $$, state, api, toast, loadPlatformInfo, getMetricDescription } from './state.js';
+import { $, $$, state, api, toast, loadPlatformInfo, getMetricDescription, getPanelCache, setPanelCache, invalidatePanelCache } from './state.js';
 
 export async function initMetrics() {
   await loadPlatformInfo();
@@ -20,9 +20,20 @@ export async function initMetrics() {
   $('#scaleBtn')?.addEventListener('click', onScale);
 }
 
-export async function loadMetrics() {
-  const res = await api(`/metrics/${state.SID}`);
-  const data = await res.json();
+export async function loadMetrics(forceRefresh = false) {
+  const cacheKey = 'metrics_all';
+  let data;
+  
+  if (!forceRefresh) {
+    data = getPanelCache(cacheKey);
+  }
+  
+  if (!data) {
+    const res = await api(`/metrics/${state.SID}`);
+    data = await res.json();
+    setPanelCache(cacheKey, data);
+  }
+  
   renderMetrics(data);
 }
 
@@ -71,6 +82,7 @@ function renderMetrics(data) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ [inp.dataset.key]: +inp.value })
         });
+        invalidatePanelCache('metrics');
         toast('已更新');
       } catch (e) { toast(e.message, 'err'); }
     });
@@ -85,7 +97,8 @@ async function onScale() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ scale: +$('#scaleInput').value })
     });
-    await loadMetrics();
+    invalidatePanelCache('metrics');
+    await loadMetrics(true);
     toast('度量值已缩放');
   } catch (e) { toast(e.message, 'err'); }
 }
