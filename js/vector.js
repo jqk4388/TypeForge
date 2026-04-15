@@ -598,7 +598,12 @@ function parseSVGPath(d) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   从点数据绘制
+   从点数据绘制 (TrueType 隐含 on-curve 点算法 v2)
+   
+   TrueType 规范：
+   - 两个相邻 on-curve 之间的 off-curve 作为二次贝塞尔控制点
+   - 连续 off-curve 序列：每对之间取中点作为隐含 on-curve 锚点
+   - 如果轮廓以 off-curve 开头，回绕到末尾找前一个点建立连接
    ══════════════════════════════════════════════════════════════════ */
 function drawGlyphFromPoints(ps) {
   if (!vecState.points.length || !vecState.endPts.length) return;
@@ -609,34 +614,81 @@ function drawGlyphFromPoints(ps) {
     const contourPts = vecState.points.slice(start, end);
     if (contourPts.length < 2) continue;
 
+    const n = contourPts.length;
+
+    // Step 1: 找到第一个 on-curve 点作为起始点
+    let firstOnCurve = -1;
+    for (let k = 0; k < n; k++) {
+      if (contourPts[k].onCurve) { firstOnCurve = k; break; }
+    }
+
+    // 如果没有任何 on-curve 点（纯 off-curve 轮廓），
+    // 所有相邻 off-curve 对之间取中点作为隐含 on-curve
+    if (firstOnCurve === -1) {
+      drawPureOffCurveContour(ps, contourPts);
+      continue;
+    }
+
     const path = new ps.Path();
     path.closed = true;
 
-    let i = 0;
-    while (i < contourPts.length) {
+    // 从第一个 on-curve 点开始遍历
+    let i = firstOnCurve;
+    // moveTo 第一个 on-curve 点
+    path.add([contourPts[i].x, -contourPts[i].y]);
+    i = (i + 1) % n;
+
+    while (i !== firstOnCurve) {
       const pt = contourPts[i];
+
       if (pt.onCurve) {
-        path.add([pt.x, -pt.y]);
-        i++;
+        // on-curve → 直线到该点
+        path.lineTo([pt.x, -pt.y]);
+        i = (i + 1) % n;
       } else {
-        const next = contourPts[(i + 1) % contourPts.length];
-        if (!next.onCurve) {
-          const midX = (pt.x + next.x) / 2;
-          const midY = (pt.y + next.y) / 2;
-          path.add(new ps.Segment(
-            [midX, -midY],
-            [pt.x - midX, -(pt.y - midY)],
-            null
-          ));
-          i++;
-        } else {
-          path.add(new ps.Segment(
-            [next.x, -next.y],
-            [pt.x - next.x, -(pt.y - next.y)],
-            null
-          ));
-          i += 2;
+        // off-curve → 收集连续的 off-curve 序列
+        const offCurves = [];
+        let j = i;
+        while (!contourPts[j].onCurve && j !== firstOnCurve) {
+          offCurves.push(contourPts[j]);
+          j = (j + 1) % n;
         }
+
+        // j 现在指向下一个 on-curve 点
+        const anchorPt = contourPts[j];
+
+        // 插值隐含 on-curve 点
+        // 段0: 当前 on-curve → 第一个隐含 on-curve (offCurves[0] 与 offCurves[1] 的中点)
+        // 段k: 隐含 on-curve[k] → 隐含 on-curve[k+1] (offCurves[k+1] 与 offCurves[k+2] 的中点)
+        // 最后一段: 最后隐含 on-curve → anchorPt
+        if (offCurves.length === 1) {
+          // 单个 off-curve: 直接连到下一个 on-curve 点
+          path.quadraticCurveTo(
+            [offCurves[0].x, -offCurves[0].y],
+            [anchorPt.x, -anchorPt.y]
+          );
+        } else {
+          // 多个 off-curve: 在每对之间插入隐含中点
+          // 第一个控制段: 当前位置 → (offCurves[0] + offCurves[1]) / 2
+          const midX1 = (offCurves[0].x + offCurves[1].x) / 2;
+          const midY1 = (offCurves[0].y + offCurves[1].y) / 2;
+          path.quadraticCurveTo([offCurves[0].x, -offCurves[0].y], [midX1, -midY1]);
+
+          // 中间控制段
+          for (let k = 1; k < offCurves.length - 1; k++) {
+            const midX = (offCurves[k].x + offCurves[k + 1].x) / 2;
+            const midY = (offCurves[k].y + offCurves[k + 1].y) / 2;
+            path.quadraticCurveTo([offCurves[k].x, -offCurves[k].y], [midX, -midY]);
+          }
+
+          // 最后控制段: 最后一个 off-curve → anchorPt
+          path.quadraticCurveTo(
+            [offCurves[offCurves.length - 1].x, -offCurves[offCurves.length - 1].y],
+            [anchorPt.x, -anchorPt.y]
+          );
+        }
+
+        i = (j + 1) % n;
       }
     }
 
@@ -645,6 +697,42 @@ function drawGlyphFromPoints(ps) {
     path.strokeWidth = 1.5;
     vecState.mainPathItems.push(path);
   }
+}
+
+/**
+ * 纯 off-curve 轮廓：所有相邻对之间取中点作为隐含 on-curve 锚点
+ */
+function drawPureOffCurveContour(ps, contourPts) {
+  const n = contourPts.length;
+  if (n < 2) return;
+
+  const path = new ps.Path();
+  path.closed = true;
+
+  // 隐含 on-curve 点列表
+  const anchors = [];
+  for (let k = 0; k < n; k++) {
+    const next = (k + 1) % n;
+    anchors.push({
+      x: (contourPts[k].x + contourPts[next].x) / 2,
+      y: (contourPts[k].y + contourPts[next].y) / 2,
+    });
+  }
+
+  // 从第一个隐含 on-curve 点开始
+  path.add([anchors[0].x, -anchors[0].y]);
+  for (let k = 0; k < n; k++) {
+    const nextAnchor = anchors[(k + 1) % n];
+    path.quadraticCurveTo(
+      [contourPts[k].x, -contourPts[k].y],
+      [nextAnchor.x, -nextAnchor.y]
+    );
+  }
+
+  path.fillColor = new ps.Color(0.486, 0.361, 0.988, 0.15);
+  path.strokeColor = '#7c5cfc';
+  path.strokeWidth = 1.5;
+  vecState.mainPathItems.push(path);
 }
 
 /* ══════════════════════════════════════════════════════════════════
