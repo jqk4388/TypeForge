@@ -28,7 +28,7 @@ export function showOverview(data) {
 
   // Name summary
   const name = data.name || {};
-  const common = { 1: '字体族名', 2: '子族名', 4: '全名', 5: '版本', 6: 'PS名' };
+  const common = { 1: '字体族名', 2: '子族名', 3: '唯一标识', 4: '全名', 5: '版本', 6: 'PostScript名', 7: '商标', 8: '厂商', 9: '设计师', 10: '描述', 11: '厂商URL', 12: '设计者URL', 13: '许可证说明', 14: '许可证URL' };
   html += `<div class="card" style="margin-top:12px"><div class="lbl" style="margin-bottom:8px">名称摘要</div><table><thead><tr><th>ID</th><th>说明</th><th>值</th></tr></thead><tbody>`;
   for (const [id, label] of Object.entries(common)) {
     const rec = Object.values(name).find(r => r.nameID == id && r.platformID == 3);

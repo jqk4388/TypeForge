@@ -13,6 +13,27 @@ export async function loadCmap() {
   const res = await api(`/cmap/${state.SID}`);
   const data = await res.json();
   state.cmapData = data.mappings || [];
+
+  // 空数据时显示提示，隐藏表格
+  const tableWrap = document.querySelector('#panel-cmap .card, #panel-cmap table#schemetable');
+  const hint = document.getElementById('cmapEmptyHint');
+  if (!state.cmapData.length) {
+    if (!hint) {
+      const p = document.createElement('div');
+      p.id = 'cmapEmptyHint';
+      p.style.cssText = 'color:var(--tx-2);text-align:center;padding:60px 0';
+      p.innerHTML = '<p style="font-size:48px;margin-bottom:12px">🔤</p><p>该字体没有字符映射 (cmap) 数据</p>';
+      const parent = document.querySelector('#panel-cmap');
+      const tableEl = document.querySelector('#panel-cmap > div:last-child');
+      if (parent && tableEl) tableEl.style.display = 'none';
+      parent.appendChild(p);
+    }
+    return;
+  }
+  if (hint) hint.remove();
+  const tableEl = document.querySelector('#panel-cmap > div:last-child');
+  if (tableEl) tableEl.style.display = '';
+
   renderCmapTable($('#cmapSearch')?.value || '');
 }
 

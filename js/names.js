@@ -5,6 +5,59 @@
  */
 import { $, state, api, toast, getPlatformName, getLanguageName, loadPlatformInfo } from './state.js';
 
+// OpenType nameID 定义表
+const NAME_ID_MAP = {
+  0: '版权声明',
+  1: '字体族名 (Family)',
+  2: '子族名 (Subfamily)',
+  3: '唯一标识 (Unique ID)',
+  4: '全名 (Full Name)',
+  5: '版本 (Version)',
+  6: 'PostScript名',
+  7: '商标 (Trademark)',
+  8: '厂商 (Manufacturer)',
+  9: '设计师 (Designer)',
+  10: '描述 (Description)',
+  11: '厂商URL (Vendor URL)',
+  12: '设计者URL (Designer URL)',
+  13: '许可证说明',
+  14: '许可证URL',
+  15: '排版预留',
+  16: '字体族名 (Typographic)',
+  17: '子族名 (Typographic)',
+  18: '兼容全名 (Compatible Full)',
+  19: '样本文本 (Sample Text)',
+  20: 'PostScript CID',
+  21: 'WWS 族名 (WWS Family)',
+  22: 'WWS 子族名 (WWS Subfamily)',
+  23: '轻量背景色',
+  24: '重色背景色',
+  25: '字体变体',
+  26: '年份 (Year)',
+  27: '轴名 (Axis Name)',
+  28: '轴值名 (Axis Value Name)',
+  29: '轴值范围 (Axis Value Range)',
+  30: '轴值椭圆 (Axis Value Ellipse)',
+  31: '轴值名称 (Axis Value Name)',
+  32: 'Axis Value Label',
+  33: 'Axis Value Symbol',
+  34: 'ELID Field (ELID)',
+  35: 'ELID Value (ELID)',
+  36: '燃油名称',
+  37: '赛道名称',
+  38: '竞速者名称',
+  39: '阶段名称',
+  40: '性能指标',
+  255: 'Master UID',
+  256: '草图族名',
+  257: 'PostScript CID (FD)',
+  258: 'PostScript Font Name',
+};
+
+function getNameIDLabel(nameID) {
+  return NAME_ID_MAP[nameID] || '';
+}
+
 export async function initNames() {
   await loadPlatformInfo();
 
@@ -27,14 +80,21 @@ function renderNameTable(filter = '') {
   tbody.innerHTML = '';
 
   state.nameRecords.forEach((r, i) => {
-    if (lf && !`${r.nameID} ${r.value}`.toLowerCase().includes(lf)) return;
+    const nidLabel = getNameIDLabel(r.nameID);
+    if (lf && !`${r.nameID} ${nidLabel} ${r.value}`.toLowerCase().includes(lf)) return;
     const tr = document.createElement('tr');
 
     // Human-readable platform & language
     const platName = getPlatformName(r.platformID);
     const langName = getLanguageName(r.platformID, r.langID);
 
-    tr.innerHTML = `<td>${r.nameID}</td>
+    // nameID 带定义标签
+    const nidLabel = getNameIDLabel(r.nameID);
+    const nidHtml = nidLabel
+      ? `${r.nameID} <span style="font-size:11px;color:var(--tx-2)">${nidLabel}</span>`
+      : `${r.nameID}`;
+
+    tr.innerHTML = `<td>${nidHtml}</td>
       <td><span style="color:var(--ac)">${platName}</span> <span style="font-size:10px;color:var(--tx-3)">(${r.platformID})</span></td>
       <td>${r.encodingID}</td>
       <td><span style="color:var(--ok)">${langName}</span> <span style="font-size:10px;color:var(--tx-3)">(0x${r.langID.toString(16).toUpperCase().padStart(4,'0')})</span></td>
@@ -102,7 +162,7 @@ function toggleQuickEdit() {
     return;
   }
   panel.style.display = 'block';
-  const common = { 1: '字体族名', 2: '子族名', 4: '全名', 5: '版本', 6: 'PostScript名', 7: '商标', 8: '厂商', 9: '设计师', 11: '许可证URL', 12: '许可证URL', 13: '许可证', 14: '许可证' };
+  const common = { 1: '字体族名', 2: '子族名', 3: '唯一标识', 4: '全名', 5: '版本', 6: 'PostScript名', 7: '商标', 8: '厂商', 9: '设计师', 10: '描述', 11: '厂商URL', 12: '设计者URL', 13: '许可证说明', 14: '许可证URL', 16: '字体族名(Typo)', 17: '子族名(Typo)', 19: '样本文本' };
   let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">';
   for (const [nid, label] of Object.entries(common)) {
     const rec = state.nameRecords.find(r => r.nameID == nid && r.platformID == 3);
