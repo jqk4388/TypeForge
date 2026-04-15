@@ -1464,6 +1464,145 @@ def set_glyph_outline(session_id, glyph_name):
     return jsonify({'ok': True})
 
 
+@app.route('/api/glyph/<session_id>/<glyph_name>/outline-svg', methods=['POST'])
+def set_glyph_outline_svg(session_id, glyph_name):
+    """Update glyph outline from SVG path data (Paper.js segments mode).
+
+    The frontend sends Paper.js path data which is in SVG coordinate system (Y-down).
+    We need to convert to font coordinate system (Y-up) and rebuild the glyph.
+
+    Strategy: Extract all points from SVG path segments, identify contour breaks,
+    and rebuild using TrueType point arrays (coordinates + flags + endPtsOfContours).
+    """
+    info = get_font(session_id)
+    if not info:
+        return jsonify({'error': 'Session not found'}), 404
+
+    data = request.json
+    font = info['font']
+    glyf = font.get('glyf')
+    if glyf is None:
+        return jsonify({'error': 'No glyf table'}), 404
+
+    glyph = glyf.get(glyph_name)
+    if glyph is None:
+        return jsonify({'error': f'Glyph {glyph_name} not found'}), 404
+
+    svg_path_data = data.get('svgPathData', '')
+    if not svg_path_data:
+        return jsonify({'error': 'No SVG path data'}), 400
+
+    try:
+        from fontTools.pens.recordingPen import RecordingPen
+        from fontTools.svgLib.path import parse_path
+        import array
+        from fontTools.ttLib.tables._g_l_y_f import Glyph
+
+        # Parse SVG path
+        path = parse_path(svg_path_data)
+
+        # Record the path operations
+        rec = RecordingPen()
+        path.draw(rec)
+
+        # Extract contours from recording
+        # Each contour: moveTo + lineTo/curveTo/qCurveTo + closePath
+        all_points = []   # (x, y, on_curve)
+        all_endpts = []   # end point index of each contour
+        contour_start = 0
+
+        for op, args in rec.value:
+            if op == 'moveTo':
+                if len(all_points) > contour_start:
+                    all_endpts.append(len(all_points) - 1)
+                x, y = args[0]
+                all_points.append((x, -y, True))  # Flip Y, on-curve
+                contour_start = len(all_points) - 1
+
+            elif op == 'lineTo':
+                x, y = args[0]
+                all_points.append((x, -y, True))
+
+            elif op == 'curveTo':
+                # Cubic bezier → TrueType quadratic approximation
+                p0 = all_points[-1]
+                p1 = (args[0][0], -args[0][1])
+                p2 = (args[1][0], -args[1][1])
+                p3 = (args[2][0], -args[2][1])
+                quads = _cubic_to_quads(
+                    (p0[0], p0[1]), p1, p2, p3, num_quads=3
+                )
+                for qcp, qend in quads:
+                    all_points.append((qcp[0], qcp[1], False))
+                    all_points.append((qend[0], qend[1], True))
+
+            elif op == 'qCurveTo':
+                for pt in args[:-1]:
+                    all_points.append((pt[0], -pt[1], False))
+                last = args[-1]
+                all_points.append((last[0], -last[1], True))
+
+            elif op in ('closePath', 'endPath'):
+                pass
+
+        # Close last contour
+        if len(all_points) > contour_start:
+            all_endpts.append(len(all_points) - 1)
+
+        if not all_points or not all_endpts:
+            return jsonify({'error': 'No points extracted'}), 400
+
+        coords = [(p[0], p[1]) for p in all_points]
+        flags = array.array('B', [0x01 if p[2] else 0x00 for p in all_points])
+
+        new_glyph = Glyph()
+        new_glyph.numberOfContours = len(all_endpts)
+        new_glyph.coordinates = coords
+        new_glyph.flags = flags
+        new_glyph.endPtsOfContours = [int(e) for e in all_endpts]
+        new_glyph.program = None
+
+        if coords:
+            xs = [c[0] for c in coords]
+            ys = [c[1] for c in coords]
+            new_glyph.xMin = min(xs)
+            new_glyph.yMin = min(ys)
+            new_glyph.xMax = max(xs)
+            new_glyph.yMax = max(ys)
+
+        glyf[glyph_name] = new_glyph
+        return jsonify({'ok': True})
+
+    except Exception as e:
+        dbg("SVG outline save failed: %s", e)
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+def _cubic_to_quads(p0, p1, p2, p3, num_quads=3):
+    """Convert a cubic bezier to quadratic bezier segments."""
+    quads = []
+    for i in range(num_quads):
+        t0 = i / num_quads
+        t1 = (i + 1) / num_quads
+        t_mid = (t0 + t1) / 2
+        start = _eval_cubic(p0, p1, p2, p3, t0)
+        mid = _eval_cubic(p0, p1, p2, p3, t_mid)
+        end = _eval_cubic(p0, p1, p2, p3, t1)
+        qx = 2 * mid[0] - 0.5 * start[0] - 0.5 * end[0]
+        qy = 2 * mid[1] - 0.5 * start[1] - 0.5 * end[1]
+        quads.append(((qx, qy), end))
+    return quads
+
+
+def _eval_cubic(p0, p1, p2, p3, t):
+    mt = 1 - t
+    x = mt**3*p0[0] + 3*mt**2*t*p1[0] + 3*mt*t**2*p2[0] + t**3*p3[0]
+    y = mt**3*p0[1] + 3*mt**2*t*p1[1] + 3*mt*t**2*p2[1] + t**3*p3[1]
+    return (x, y)
+
+
 @app.route('/api/glyphs/<session_id>', methods=['POST'])
 def create_glyph(session_id):
     """Create a new empty glyph."""

@@ -1,7 +1,7 @@
 /**
  * TypeForge Pro — OTL Panel (Enhanced: glyph rendering in lookups, collapsible tree)
  */
-import { $, $$, state, api, toast, getFeatureName, getScriptName, loadPlatformInfo, getPanelCache, setPanelCache, invalidatePanelCache } from './state.js';
+import { $, $$, state, api, toast, getFeatureName, getScriptName, loadPlatformInfo, getPanelCache, setPanelCache, invalidatePanelCache, platformInfo } from './state.js';
 
 export async function initOtl() {
   await loadPlatformInfo();
@@ -188,7 +188,16 @@ function renderOtlTree(data) {
       );
     }
   }
-  html += `<div style="margin-top:12px"><button class="btn btn-sm" id="addFeatureBtn">+ 添加特性</button></div>`;
+  html += `<div style="margin-top:12px">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select class="fld" id="addFeatureTagSelect" style="width:200px">
+        <option value="">选择特性标签...</option>
+        ${getFeatureOptions()}
+      </select>
+      <input class="fld" id="addFeatureLookupInput" type="number" placeholder="Lookup 索引" style="width:120px">
+      <button class="btn btn-sm" id="addFeatureBtn">添加</button>
+    </div>
+  </div>`;
   html += '</div></div>';
 
   // ─── Section: Lookups ───
@@ -258,7 +267,34 @@ function renderOtlTree(data) {
       );
     }
   }
-  html += `<div style="margin-top:12px"><button class="btn btn-sm" id="addLookupBtn">+ 添加 Lookup</button></div>`;
+  html += `<div style="margin-top:12px">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select class="fld" id="addLookupTypeSelect" style="width:200px">
+        <option value="">选择 Lookup 类型...</option>
+        ${state.currentOtlTab === 'GSUB' ? `
+          <option value="1">Type 1 — 单一替换 (Single)</option>
+          <option value="2">Type 2 — 多重替换 (Multiple)</option>
+          <option value="3">Type 3 — 备选替换 (Alternate)</option>
+          <option value="4">Type 4 — 连字替换 (Ligature)</option>
+          <option value="5">Type 5 — 上下文替换 (Context)</option>
+          <option value="6">Type 6 — 链式上下文 (Chained Context)</option>
+          <option value="7">Type 7 — 扩展替换 (Extension)</option>
+          <option value="8">Type 8 — 反向链式 (Reverse Chaining)</option>
+        ` : `
+          <option value="1">Type 1 — 单点定位 (Single)</option>
+          <option value="2">Type 2 — 成对定位 (Pair)</option>
+          <option value="3">Type 3 — 连写定位 (Cursive)</option>
+          <option value="4">Type 4 — 标记-基线 (MarkBase)</option>
+          <option value="5">Type 5 — 标记-连字 (MarkLig)</option>
+          <option value="6">Type 6 — 标记-标记 (MarkMark)</option>
+          <option value="7">Type 7 — 上下文定位 (Context)</option>
+          <option value="8">Type 8 — 链式上下文 (Chained Context)</option>
+          <option value="9">Type 9 — 扩展定位 (Extension)</option>
+        `}
+      </select>
+      <button class="btn btn-sm" id="addLookupBtn">添加</button>
+    </div>
+  </div>`;
   html += '</div></div>';
 
   $('#otlContent').innerHTML = html;
@@ -279,12 +315,14 @@ function renderOtlTree(data) {
   // Load SVG thumbnails only for currently visible section
   loadOtlGlyphSvgs();
 
-  // Add feature button
+  // Add feature button (inline dropdown)
   $('#addFeatureBtn')?.addEventListener('click', async () => {
-    const tag = prompt('特性标签 (如 liga, kern, calt, vrt2):');
-    if (!tag) return;
-    const lkIdx = prompt('关联的 Lookup 索引:');
-    if (lkIdx === null) return;
+    const tagSelect = $('#addFeatureTagSelect');
+    const lkInput = $('#addFeatureLookupInput');
+    const tag = tagSelect?.value;
+    const lkIdx = lkInput?.value;
+    if (!tag) { toast('请选择特性标签', 'err'); return; }
+    if (!lkIdx && lkIdx !== '0') { toast('请输入 Lookup 索引', 'err'); return; }
     try {
       await api(`/otl/${state.SID}/${state.currentOtlTab}/feature`, {
         method: 'POST',
@@ -293,13 +331,15 @@ function renderOtlTree(data) {
       });
       invalidatePanelCache('otl_');
       await loadOtl(true);
-      toast('特性已添加');
+      toast(`特性 ${tag} 已添加`);
     } catch (e) { toast(e.message, 'err'); }
   });
 
+  // Add lookup button (inline dropdown)
   $('#addLookupBtn')?.addEventListener('click', async () => {
-    const lt = prompt('Lookup 类型 (1=Single, 2=Multiple, 3=Alternate, 4=Ligature):');
-    if (!lt) return;
+    const typeSelect = $('#addLookupTypeSelect');
+    const lt = typeSelect?.value;
+    if (!lt) { toast('请选择 Lookup 类型', 'err'); return; }
     try {
       await api(`/otl/${state.SID}/${state.currentOtlTab}/add-lookup`, {
         method: 'POST',
@@ -495,4 +535,27 @@ function renderFvar(data) {
     html += '</tbody></table>';
   }
   $('#otlContent').innerHTML = html;
+}
+
+/** Generate <option> list for feature tag dropdown */
+function getFeatureOptions() {
+  if (!platformInfo || !platformInfo.otFeatures) return '';
+  const existing = new Set();
+  // Collect existing feature tags from current data to mark them
+  const opts = [];
+  const features = platformInfo.otFeatures;
+  // Sort: common features first, then alphabetical
+  const priority = ['liga', 'kern', 'calt', 'rlig', 'clig', 'liga', 'dlig', 'hlig', 'salt', 'ss01', 'ss02', 'ss03', 'case', 'cpsp', 'fina', 'medi', 'init', 'isol', 'medi', 'rlig', 'mark', 'mkmk', 'vkrn', 'vert', 'vrt2', 'vkal', 'valt'];
+  const sorted = Object.entries(features).sort((a, b) => {
+    const ai = priority.indexOf(a[0]);
+    const bi = priority.indexOf(b[0]);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a[0].localeCompare(b[0]);
+  });
+  for (const [tag, desc] of sorted) {
+    opts.push(`<option value="${tag}">${tag} — ${desc}</option>`);
+  }
+  return opts.join('\n        ');
 }

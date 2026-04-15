@@ -12,3 +12,4 @@ uploads/
 *.tmp
 dist/
 .playwright-cli/
+*.png

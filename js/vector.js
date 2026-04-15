@@ -1,15 +1,16 @@
 /**
- * TypeForge Pro — Vector Editor v7
+ * TypeForge Pro — Vector Editor v8
  *
- * 核心改进：
- * 1. 拖拽控制点时实时重绘轮廓路径（不再只移动点圆圈）
- * 2. off-curve 手柄线：渲染 off-curve → on-curve 之间的蓝色连接线
- * 3. 缩放：以鼠标位置为中心，平滑因子 1.08，范围 0.01-128
- * 4. 中键拖拽：button === 1 判断，阻止默认中键行为
- * 5. 空格拖拽：保留
- * 6. 消除重影：viewSize 只在初始化时设一次，resize 时重设
- * 7. 控制点/网格线：clamp 最小粗细，高倍缩放也可见
- * 8. fitView：改用 zoom/center 直接计算，不多次 scale
+ * 核心改进 (v8):
+ * 1. 统一使用 svgPath 渲染：从 Paper.js Path segments 提取可编辑点
+ *    - 三次贝塞尔曲线正确显示
+ *    - 拖拽控制点时曲线实时跟随
+ * 2. 复杂字形不再用 TrueType points 二次贝塞尔渲染（连线错乱问题）
+ * 3. 保存时将 Paper.js segments 转回 fontTools 兼容格式
+ * 4. off-curve 手柄线：渲染 off-curve → on-curve 之间的蓝色连接线
+ * 5. 缩放：以鼠标位置为中心，平滑因子 1.08，范围 0.01-128
+ * 6. 中键拖拽：button === 1 判断，阻止默认中键行为
+ * 7. 空格拖拽：保留
  */
 import { $, $$, state, api, toast } from './state.js';
 
@@ -26,13 +27,16 @@ let vecState = {
   historyIdx: -1,
   tool: 'select',
   paperScope: null,
-  pointItems: [],
-  mainPathItems: [],     // Paper.js Path items for glyph outline
+  pointItems: [],       // Paper.js items for editable control points (circles)
+  mainPathItems: [],    // Paper.js Path items for glyph outline
   handleLineItems: [],   // Paper.js Path items for handle lines (off→on connections)
   refPath: null,
   initialized: false,
   pendingGlyph: null,
   initAttempts: 0,
+  // v8: segment-based editing
+  useSegments: false,    // true when editing via Paper.js path segments
+  segmentPaths: [],      // Paper.js Path objects whose segments we edit
 };
 
 /* ══════════════════════════════════════════════════════════════════
@@ -96,6 +100,8 @@ export async function loadVecGlyph(name) {
     vecState.points = data.points || [];
     vecState.endPts = data.endPtsOfContours || [];
     vecState.components = data.components || [];
+    vecState.useSegments = false;
+    vecState.segmentPaths = [];
     vecState.history = [JSON.parse(JSON.stringify({ points: vecState.points, endPts: vecState.endPts }))];
     vecState.historyIdx = 0;
     vecState.refPath = null;
@@ -267,37 +273,39 @@ function ensurePaperInit() {
         for (let i = vecState.pointItems.length - 1; i >= 0; i--) {
           const item = vecState.pointItems[i];
           if (item && event.point.getDistance(item.position) < threshold) {
-            hitResult = { idx: i, item };
+            hitResult = { idx: i, item, data: item.data };
             dragItem = item;
             updateVecPointInfo(i);
             break;
           }
         }
       } else if (vecState.tool === 'delete') {
-        let minD = Infinity, minI = -1;
+        let minD = Infinity, minI = -1, minData = null;
         for (let i = 0; i < vecState.pointItems.length; i++) {
           const item = vecState.pointItems[i];
           if (item) {
             const d = event.point.getDistance(item.position);
-            if (d < minD) { minD = d; minI = i; }
+            if (d < minD) { minD = d; minI = i; minData = item.data; }
           }
         }
-        if (minD < threshold && minI >= 0) deletePoint(minI);
+        if (minD < threshold && minI >= 0) deletePoint(minI, minData);
       } else if (vecState.tool === 'toggleCurve') {
-        let minD = Infinity, minI = -1;
-        for (let i = 0; i < vecState.pointItems.length; i++) {
-          const item = vecState.pointItems[i];
-          if (item) {
-            const d = event.point.getDistance(item.position);
-            if (d < minD) { minD = d; minI = i; }
+        // toggleCurve only works in TrueType mode
+        if (!vecState.useSegments) {
+          let minD = Infinity, minI = -1;
+          for (let i = 0; i < vecState.pointItems.length; i++) {
+            const item = vecState.pointItems[i];
+            if (item) {
+              const d = event.point.getDistance(item.position);
+              if (d < minD) { minD = d; minI = i; }
+            }
           }
-        }
-        if (minD < threshold && minI >= 0) {
-          vecState.points[minI].onCurve = !vecState.points[minI].onCurve;
-          pushHistory();
-          renderVecEditor();
-        }
-      } else if (vecState.tool === 'addOn' || vecState.tool === 'addOff') {
+          if (minD < threshold && minI >= 0) {
+            vecState.points[minI].onCurve = !vecState.points[minI].onCurve;
+            pushHistory();
+            renderVecEditor();
+          }
+        } else if (vecState.tool === 'addOn' || vecState.tool === 'addOff') {
         const x = Math.round(event.point.x);
         const y = Math.round(-event.point.y);
         vecState.points.push({ x, y, onCurve: vecState.tool === 'addOn' });
@@ -323,13 +331,46 @@ function ensurePaperInit() {
 
       // 点拖拽
       if (vecState.tool === 'select' && dragItem && hitResult) {
-        dragItem.position = dragItem.position.add(event.delta);
-        const idx = hitResult.idx;
-        vecState.points[idx].x = Math.round(dragItem.position.x);
-        vecState.points[idx].y = Math.round(-dragItem.position.y);
-        updateVecPointInfo(idx);
-        // 实时更新轮廓路径 + 手柄线
-        updateGlyphOutlineLive(ps);
+        const d = hitResult.data;
+
+        if (vecState.useSegments && d.type === 'anchor') {
+          // ── Segments 模式：拖拽锚点 ──────────────────────────
+          const path = vecState.segmentPaths[d.pathIdx];
+          if (path && path.segments[d.segIdx]) {
+            const seg = path.segments[d.segIdx];
+            // 移动 segment 的锚点 + 两个 handle 一起
+            const delta = event.delta;
+            seg.point = seg.point.add(delta);
+            // Handle circles follow
+            updateHandleCirclesForSegment(ps, d.pathIdx, d.segIdx);
+            ps.view.update();
+            updateSegmentPointInfo(d);
+          }
+        } else if (vecState.useSegments && (d.type === 'handleIn' || d.type === 'handleOut')) {
+          // ── Segments 模式：拖拽手柄 ─────────────────────────
+          const path = vecState.segmentPaths[d.pathIdx];
+          if (path && path.segments[d.segIdx]) {
+            const seg = path.segments[d.segIdx];
+            if (d.type === 'handleIn') {
+              seg.handleIn = seg.handleIn.add(event.delta);
+            } else {
+              seg.handleOut = seg.handleOut.add(event.delta);
+            }
+            // Update handle circle positions + handle lines
+            updateHandleCirclesForSegment(ps, d.pathIdx, d.segIdx);
+            ps.view.update();
+            updateSegmentPointInfo(d);
+          }
+        } else if (!vecState.useSegments && d.type === 'ttPoint') {
+          // ── TrueType 模式：拖拽点 ────────────────────────────
+          dragItem.position = dragItem.position.add(event.delta);
+          const idx = d.idx;
+          vecState.points[idx].x = Math.round(dragItem.position.x);
+          vecState.points[idx].y = Math.round(-dragItem.position.y);
+          updateVecPointInfo(idx);
+          // 实时更新轮廓路径 + 手柄线
+          updateGlyphOutlineLive(ps);
+        }
       }
     };
 
@@ -340,7 +381,13 @@ function ensurePaperInit() {
         applyCursor();
         return;
       }
-      if (vecState.tool === 'select' && dragItem && hitResult) pushHistory();
+      if (vecState.tool === 'select' && dragItem && hitResult) {
+        if (vecState.useSegments) {
+          pushSegmentHistory();
+        } else {
+          pushHistory();
+        }
+      }
       dragItem = null;
       hitResult = null;
     };
@@ -431,6 +478,8 @@ function renderVecEditor() {
   // 重置路径和手柄线引用
   vecState.mainPathItems = [];
   vecState.handleLineItems = [];
+  vecState.segmentPaths = [];
+  vecState.pointItems = [];
 
   // ── 背景网格 ─────────────────────────────────────────────────
   for (let i = 0; i <= em; i += 100) {
@@ -492,13 +541,12 @@ function renderVecEditor() {
 
   // ── 字形轮廓 ─────────────────────────────────────────────────
   let hasPath = false;
-  // 优先用 svgPath（后端 SVGPathPen 生成，正确处理 CFF/CFF2 三次贝塞尔）
-  // 仅在 svgPath 不存在时 fallback 到 TrueType 点数据
   if (vecState.svgPath) {
-    hasPath = drawGlyphFromSVG(ps);
+    hasPath = drawGlyphFromSVGSegments(ps);
   }
   if (!hasPath && vecState.points.length > 0 && vecState.endPts.length > 0) {
     drawGlyphFromPoints(ps);
+    renderHandleLines(ps, sw);
   }
 
   // ── 参考字形 ─────────────────────────────────────────────────
@@ -514,11 +562,172 @@ function renderVecEditor() {
     } catch (e) { /* ignore */ }
   }
 
-  // ── 手柄线（off-curve → 相邻 on-curve 的连接线） ────────────
-  renderHandleLines(ps, sw);
+  // ── 控制点（segments 模式 vs points 模式） ──────────────────
+  if (vecState.useSegments) {
+    renderSegmentControlPoints(ps, sw);
+  } else {
+    renderTrueTypeControlPoints(ps, sw);
+  }
 
-  // ── 控制点 ───────────────────────────────────────────────────
+  ps.view.update();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SVG path 渲染 — segments 模式 (v8)
+   
+   将 svgPath 拆分为多个子路径（按 M 命令分割），
+   每个子路径是一个独立的 Paper.js Path。
+   然后从 segments 提取控制点，拖拽时直接修改 segment，曲线自动跟随。
+   ══════════════════════════════════════════════════════════════════ */
+function drawGlyphFromSVGSegments(ps) {
+  if (!vecState.svgPath) return false;
+  const pathStr = vecState.svgPath;
+  if (!pathStr || pathStr.length < 3) return false;
+
+  try {
+    // 按 M 命令拆分为多个子路径
+    const subPaths = splitSVGPathByMoveTo(pathStr);
+    if (subPaths.length === 0) return false;
+
+    vecState.useSegments = true;
+    vecState.segmentPaths = [];
+
+    for (const subPathStr of subPaths) {
+      if (subPathStr.length < 3) continue;
+      try {
+        const p = new ps.Path();
+        p.pathData = subPathStr;
+        p.scale(1, -1, new ps.Point(0, 0));
+        p.fillColor = new ps.Color(0.486, 0.361, 0.988, 0.15);
+        p.strokeColor = '#7c5cfc';
+        p.strokeWidth = 1.5;
+        vecState.segmentPaths.push(p);
+        vecState.mainPathItems.push(p);
+      } catch (e) {
+        console.warn('[Vector] Sub-path parse failed:', e.message);
+      }
+    }
+
+    return vecState.segmentPaths.length > 0;
+  } catch (e) {
+    console.warn('[Vector] SVG segment init failed:', e.message);
+    vecState.useSegments = false;
+    return false;
+  }
+}
+
+/** Split a compound SVG path into individual sub-paths by M commands */
+function splitSVGPathByMoveTo(d) {
+  const result = [];
+  let current = '';
+  const len = d.length;
+
+  for (let i = 0; i < len; i++) {
+    const ch = d[i];
+    // Detect M or m (but not if preceded by a digit - part of a number)
+    if ((ch === 'M' || ch === 'm') && (i === 0 || /[\s,;Zz]/.test(d[i - 1]))) {
+      if (current.length > 2) result.push(current);
+      current = ch;
+    } else {
+      current += ch;
+    }
+  }
+  if (current.length > 2) result.push(current);
+  return result;
+}
+
+/** Render control points from Paper.js path segments */
+function renderSegmentControlPoints(ps, sw) {
   vecState.pointItems = [];
+
+  for (let pi = 0; pi < vecState.segmentPaths.length; pi++) {
+    const path = vecState.segmentPaths[pi];
+    if (!path || !path.segments) continue;
+
+    for (let si = 0; si < path.segments.length; si++) {
+      const seg = path.segments[si];
+      const anchor = seg.point;
+
+      // 锚点 (on-curve)
+      const onR = Math.max(5 / (ps.view.zoom || 1), 2);
+      const anchorCircle = new ps.Path.Circle({
+        center: anchor,
+        radius: onR,
+        fillColor: '#7c5cfc',
+        strokeColor: '#fff',
+        strokeWidth: Math.max(1 / (ps.view.zoom || 1), 0.5)
+      });
+      // Store metadata for drag handling
+      anchorCircle.data = {
+        type: 'anchor',
+        pathIdx: pi,
+        segIdx: si
+      };
+      vecState.pointItems.push(anchorCircle);
+
+      // 控制手柄 (off-curve handles)
+      if (seg.handleIn && !seg.handleIn.isZero()) {
+        const inPos = anchor.add(seg.handleIn);
+        const offR = Math.max(4 / (ps.view.zoom || 1), 2);
+        const handleCircle = new ps.Path.Circle({
+          center: inPos,
+          radius: offR,
+          fillColor: '#f59e0b',
+          strokeColor: '#fff',
+          strokeWidth: Math.max(0.8 / (ps.view.zoom || 1), 0.4)
+        });
+        handleCircle.data = {
+          type: 'handleIn',
+          pathIdx: pi,
+          segIdx: si
+        };
+        vecState.pointItems.push(handleCircle);
+
+        // 手柄线
+        const line = new ps.Path.Line({
+          from: anchor,
+          to: inPos,
+          strokeColor: 'rgba(124, 92, 252, 0.4)',
+          strokeWidth: sw(0.6)
+        });
+        vecState.handleLineItems.push(line);
+      }
+
+      if (seg.handleOut && !seg.handleOut.isZero()) {
+        const outPos = anchor.add(seg.handleOut);
+        const offR = Math.max(4 / (ps.view.zoom || 1), 2);
+        const handleCircle = new ps.Path.Circle({
+          center: outPos,
+          radius: offR,
+          fillColor: '#f59e0b',
+          strokeColor: '#fff',
+          strokeWidth: Math.max(0.8 / (ps.view.zoom || 1), 0.4)
+        });
+        handleCircle.data = {
+          type: 'handleOut',
+          pathIdx: pi,
+          segIdx: si
+        };
+        vecState.pointItems.push(handleCircle);
+
+        // 手柄线
+        const line = new ps.Path.Line({
+          from: anchor,
+          to: outPos,
+          strokeColor: 'rgba(124, 92, 252, 0.4)',
+          strokeWidth: sw(0.6)
+        });
+        vecState.handleLineItems.push(line);
+      }
+    }
+  }
+}
+
+/** Render control points from TrueType point array */
+function renderTrueTypeControlPoints(ps, sw) {
+  vecState.pointItems = [];
+  const zoom = ps.view.zoom || 1;
+
   vecState.points.forEach((p, i) => {
     const onCurveR = 5;
     const offCurveR = 4;
@@ -530,63 +739,9 @@ function renderVecEditor() {
       strokeColor: '#fff',
       strokeWidth: Math.max(1 / zoom, 0.5)
     });
+    circle.data = { type: 'ttPoint', idx: i };
     vecState.pointItems.push(circle);
   });
-
-  ps.view.update();
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   SVG path 渲染
-   ══════════════════════════════════════════════════════════════════ */
-function drawGlyphFromSVG(ps) {
-  if (!vecState.svgPath) return false;
-
-  // svgPath 是后端 SVGPathPen 生成的一次性完整路径
-  // 对于 CFF 字体（如中文 TTF），svgPath 包含正确三次贝塞尔曲线
-  // 对于复合字形，svgPath 包含展开后的路径
-  const pathStr = vecState.svgPath;
-  if (!pathStr || pathStr.length < 3) return false;
-
-  // Paper.js pathData 支持完整的 SVG path 语法（M/L/C/Q/Z/S/A/T/H/V）
-  // scale(1,-1) 翻转 Y 轴（字体坐标系 Y 向上 → Canvas Y 向下）
-  try {
-    const mainPath = new ps.Path();
-    mainPath.pathData = pathStr;
-    mainPath.scale(1, -1, new ps.Point(0, 0));
-    mainPath.fillColor = new ps.Color(0.486, 0.361, 0.988, 0.15);
-    mainPath.strokeColor = '#7c5cfc';
-    mainPath.strokeWidth = 1.5;
-    mainPath.closed = true;
-    vecState.mainPathItems.push(mainPath);
-    return true;
-  } catch (e1) {
-    console.warn('[Vector] pathData failed, trying manual parse:', e1.message);
-  }
-
-  // Fallback: 手动解析
-  try {
-    const segments = parseSVGPath(pathStr);
-    if (segments.length > 0) {
-      const path = new ps.Path();
-      for (const seg of segments) {
-        if (seg.type === 'M') path.moveTo([seg.x, -seg.y]);
-        else if (seg.type === 'L') path.lineTo([seg.x, -seg.y]);
-        else if (seg.type === 'Q') path.quadraticCurveTo([seg.cx, -seg.cy], [seg.x, -seg.y]);
-        else if (seg.type === 'C') path.cubicCurveTo([seg.c1x, -seg.c1y], [seg.c2x, -seg.c2y], [seg.x, -seg.y]);
-        else if (seg.type === 'Z') path.closePath();
-      }
-      path.fillColor = new ps.Color(0.486, 0.361, 0.988, 0.15);
-      path.strokeColor = '#7c5cfc';
-      path.strokeWidth = 1.5;
-      vecState.mainPathItems.push(path);
-      return true;
-    }
-  } catch (e2) {
-    console.warn('[Vector] Manual parsing failed:', e2.message);
-  }
-
-  return false;
 }
 
 function parseSVGPath(d) {
@@ -795,19 +950,18 @@ function renderHandleLines(ps, sw) {
 /* ══════════════════════════════════════════════════════════════════
    拖拽时实时更新轮廓 + 手柄线 + 控制点位置
    ══════════════════════════════════════════════════════════════════ */
+/** Update outline live during TrueType point drag (segments mode handles its own updates) */
 function updateGlyphOutlineLive(ps) {
+  if (vecState.useSegments) return; // Segments mode updates path directly
+
   // 删除旧的路径和手柄线
   for (const p of vecState.mainPathItems) { p.remove(); }
   for (const h of vecState.handleLineItems) { h.remove(); }
   vecState.mainPathItems = [];
   vecState.handleLineItems = [];
 
-  // 重新绘制路径（优先 svgPath）
-  let hasPath = false;
-  if (vecState.svgPath) {
-    hasPath = drawGlyphFromSVG(ps);
-  }
-  if (!hasPath && vecState.points.length > 0 && vecState.endPts.length > 0) {
+  // 重新绘制路径（TrueType points 模式）
+  if (vecState.points.length > 0 && vecState.endPts.length > 0) {
     drawGlyphFromPoints(ps);
   }
 
@@ -868,33 +1022,6 @@ function pushHistory() {
   if (vecState.history.length > 50) { vecState.history.shift(); vecState.historyIdx--; }
 }
 
-function undoVec() {
-  if (vecState.historyIdx > 0) {
-    vecState.historyIdx--;
-    const prev = vecState.history[vecState.historyIdx];
-    vecState.points = JSON.parse(JSON.stringify(prev.points));
-    vecState.endPts = [...prev.endPts];
-    renderVecEditor();
-    $('#vecPointCount').textContent = vecState.points.length;
-  } else if (vecState.glyphName) {
-    loadVecGlyph(vecState.glyphName);
-  }
-}
-
-function deletePoint(idx) {
-  vecState.points.splice(idx, 1);
-  for (let j = 0; j < vecState.endPts.length; j++) {
-    if (idx <= vecState.endPts[j]) vecState.endPts[j]--;
-  }
-  vecState.endPts = vecState.endPts.filter(e => e >= 0);
-  if (vecState.endPts.length > 0) {
-    vecState.endPts[vecState.endPts.length - 1] = vecState.points.length - 1;
-  }
-  pushHistory();
-  renderVecEditor();
-  $('#vecPointCount').textContent = vecState.points.length;
-}
-
 async function loadRefGlyph() {
   if (!state.SID) return;
   const name = prompt('参考字形名称:', '');
@@ -911,11 +1038,22 @@ async function loadRefGlyph() {
 async function saveVecGlyph() {
   if (!state.SID || !vecState.glyphName) return;
   try {
-    await api(`/glyph/${state.SID}/${encodeURIComponent(vecState.glyphName)}/outline`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ points: vecState.points, endPtsOfContours: vecState.endPts })
-    });
+    if (vecState.useSegments) {
+      // Segments 模式：将 Paper.js paths 转为 SVG path data 发给后端
+      const pathData = collectSegmentPathsData();
+      await api(`/glyph/${state.SID}/${encodeURIComponent(vecState.glyphName)}/outline-svg`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ svgPathData: pathData })
+      });
+    } else {
+      // TrueType 模式
+      await api(`/glyph/${state.SID}/${encodeURIComponent(vecState.glyphName)}/outline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ points: vecState.points, endPtsOfContours: vecState.endPts })
+      });
+    }
     toast('字形轮廓已保存');
     try { await api('/cache/clear?prefix=glyph'); } catch (e) { /* ignore */ }
   } catch (e) { toast(e.message, 'err'); }
@@ -930,5 +1068,176 @@ function updateToolCursor() {
     case 'delete':     canvas.style.cursor = 'not-allowed'; break;
     case 'toggleCurve': canvas.style.cursor = 'pointer'; break;
     default:           canvas.style.cursor = 'default';
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   v8 Segments 模式辅助函数
+   ══════════════════════════════════════════════════════════════════ */
+
+/** Update handle circles + lines for a given segment after drag */
+function updateHandleCirclesForSegment(ps, pathIdx, segIdx) {
+  const path = vecState.segmentPaths[pathIdx];
+  if (!path) return;
+  const seg = path.segments[segIdx];
+  if (!seg) return;
+  const zoom = ps.view.zoom || 1;
+  const sw = (base) => Math.max(base / zoom, 0.3);
+
+  // Find and update handle circles/lines that belong to this segment
+  for (const item of vecState.pointItems) {
+    if (!item || !item.data) continue;
+    if (item.data.pathIdx !== pathIdx || item.data.segIdx !== segIdx) continue;
+
+    if (item.data.type === 'handleIn' && seg.handleIn && !seg.handleIn.isZero()) {
+      item.position = seg.point.add(seg.handleIn);
+    } else if (item.data.type === 'handleOut' && seg.handleOut && !seg.handleOut.isZero()) {
+      item.position = seg.point.add(seg.handleOut);
+    } else if (item.data.type === 'anchor') {
+      item.position = seg.point;
+    }
+  }
+
+  // Rebuild handle lines for this segment
+  // Remove old lines connected to this segment, then add new ones
+  // For performance, just rebuild all handle lines
+  for (const line of vecState.handleLineItems) line.remove();
+  vecState.handleLineItems = [];
+
+  // Re-render all handle lines
+  for (const pItem of vecState.pointItems) {
+    if (!pItem || !pItem.data) continue;
+    if (pItem.data.type !== 'handleIn' && pItem.data.type !== 'handleOut') continue;
+    const pi = pItem.data.pathIdx;
+    const si = pItem.data.segIdx;
+    const p = vecState.segmentPaths[pi];
+    if (!p || !p.segments[si]) continue;
+    const anchorPt = p.segments[si].point;
+    const line = new ps.Path.Line({
+      from: anchorPt,
+      to: pItem.position,
+      strokeColor: 'rgba(124, 92, 252, 0.4)',
+      strokeWidth: sw(0.6)
+    });
+    vecState.handleLineItems.push(line);
+  }
+}
+
+/** Show info for a segment-based control point */
+function updateSegmentPointInfo(data) {
+  const path = vecState.segmentPaths[data.pathIdx];
+  if (!path || !path.segments[data.segIdx]) return;
+  const seg = path.segments[data.segIdx];
+  let info = `路径 ${data.pathIdx}, 段 ${data.segIdx}<br>`;
+  if (data.type === 'anchor') {
+    info += `类型: 锚点 (on-curve)<br>`;
+    info += `x: ${Math.round(seg.point.x)}, y: ${Math.round(-seg.point.y)}`;
+    if (seg.handleIn && !seg.handleIn.isZero()) {
+      info += `<br>入柄: (${Math.round(seg.handleIn.x)}, ${Math.round(-seg.handleIn.y)})`;
+    }
+    if (seg.handleOut && !seg.handleOut.isZero()) {
+      info += `<br>出柄: (${Math.round(seg.handleOut.x)}, ${Math.round(-seg.handleOut.y)})`;
+    }
+  } else if (data.type === 'handleIn') {
+    info += `类型: 入柄 (in)<br>`;
+    info += `锚点: (${Math.round(seg.point.x)}, ${Math.round(-seg.point.y)})<br>`;
+    info += `柄: (${Math.round(seg.handleIn.x)}, ${Math.round(-seg.handleIn.y)})`;
+  } else {
+    info += `类型: 出柄 (out)<br>`;
+    info += `锚点: (${Math.round(seg.point.x)}, ${Math.round(-seg.point.y)})<br>`;
+    info += `柄: (${Math.round(seg.handleOut.x)}, ${Math.round(-seg.handleOut.y)})`;
+  }
+  $('#vecPointInfo').innerHTML = info;
+}
+
+/** Collect SVG path data from all segment paths for saving */
+function collectSegmentPathsData() {
+  const paths = [];
+  for (const p of vecState.segmentPaths) {
+    if (!p) continue;
+    // The path was scaled (1, -1) when created; need to reverse for font coordinates
+    const cloned = p.clone();
+    cloned.scale(1, -1, new ps.Point(0, 0));
+    paths.push(cloned.pathData);
+  }
+  return paths.join(' ');
+}
+
+/** Push segment state for undo */
+function pushSegmentHistory() {
+  // Store the current path data as a snapshot
+  const snapshot = collectSegmentPathsData();
+  vecState.history = vecState.history.slice(0, vecState.historyIdx + 1);
+  vecState.history.push({ type: 'segments', svgPathData: snapshot });
+  vecState.historyIdx = vecState.history.length - 1;
+  if (vecState.history.length > 50) { vecState.history.shift(); vecState.historyIdx--; }
+}
+
+/** Undo for segment mode */
+function undoSegment() {
+  if (vecState.historyIdx > 0) {
+    vecState.historyIdx--;
+    const prev = vecState.history[vecState.historyIdx];
+    if (prev.type === 'segments') {
+      vecState.svgPath = prev.svgPathData;
+      renderVecEditor();
+    } else {
+      vecState.points = JSON.parse(JSON.stringify(prev.points));
+      vecState.endPts = [...prev.endPts];
+      renderVecEditor();
+      $('#vecPointCount').textContent = vecState.points.length;
+    }
+  } else if (vecState.glyphName) {
+    loadVecGlyph(vecState.glyphName);
+  }
+}
+
+/** Delete a point in segment mode */
+function deletePointByData(data) {
+  if (!data) return;
+  if (data.type === 'anchor' && vecState.useSegments) {
+    const path = vecState.segmentPaths[data.pathIdx];
+    if (path && path.segments[data.segIdx]) {
+      path.segments[data.segIdx].remove();
+      renderVecEditor();
+      pushSegmentHistory();
+    }
+  }
+}
+
+/** Override deletePoint to support both modes */
+function deletePoint(idx, data) {
+  if (vecState.useSegments) {
+    deletePointByData(data || vecState.pointItems[idx]?.data);
+  } else {
+    vecState.points.splice(idx, 1);
+    for (let j = 0; j < vecState.endPts.length; j++) {
+      if (idx <= vecState.endPts[j]) vecState.endPts[j]--;
+    }
+    vecState.endPts = vecState.endPts.filter(e => e >= 0);
+    if (vecState.endPts.length > 0) {
+      vecState.endPts[vecState.endPts.length - 1] = vecState.points.length - 1;
+    }
+    pushHistory();
+    renderVecEditor();
+    $('#vecPointCount').textContent = vecState.points.length;
+  }
+}
+
+/** Override undoVec to support both modes */
+function undoVec() {
+  if (vecState.useSegments) {
+    undoSegment();
+  } else {
+    if (vecState.historyIdx > 0) {
+      vecState.historyIdx--;
+      const prev = vecState.history[vecState.historyIdx];
+      vecState.points = JSON.parse(JSON.stringify(prev.points));
+      vecState.endPts = [...prev.endPts];
+      renderVecEditor();
+      $('#vecPointCount').textContent = vecState.points.length;
+    } else if (vecState.glyphName) {
+      loadVecGlyph(vecState.glyphName);
+    }
   }
 }
