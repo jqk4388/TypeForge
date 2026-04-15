@@ -110,3 +110,13 @@ export const state = {
   get loadedConfig() { return loadedConfig; },
   set loadedConfig(v) { loadedConfig = v; },
 };
+
+/** Clear all cached panel data when switching fonts */
+export function resetState() {
+  nameRecords = [];
+  cmapData = [];
+  glyphsList = [];
+  currentMetricTab = 'hhea';
+  currentOtlTab = 'GSUB';
+  loadedConfig = null;
+}

@@ -1,7 +1,7 @@
 /**
  * TypeForge Pro — Main Application Entry
  */
-import { $, $$, state, api, toast, loadPlatformInfo } from './state.js';
+import { $, $$, state, api, toast, loadPlatformInfo, resetState } from './state.js';
 import { initTheme } from './theme.js';
 import { initNavigation } from './navigation.js';
 import { showOverview } from './overview.js';
@@ -67,6 +67,8 @@ async function uploadFont(file) {
   try {
     const res = await api('/upload', { method: 'POST', body: fd });
     const data = await res.json();
+    // 清空旧面板缓存
+    resetState();
     state.SID = data.sessionId;
     state.fontInfo = data;
     $('#fontLabel').textContent = data.filename;

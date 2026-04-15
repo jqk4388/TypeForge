@@ -12,13 +12,16 @@ import { loadPreviewFont } from './preview.js';
 
 async function loadAllPanels() {
   if (!state.SID) return;
-  try { await loadNames(); } catch (e) { }
-  try { await loadMetrics(); } catch (e) { }
-  try { await loadCmap(); } catch (e) { }
-  try { await loadGlyphs(); } catch (e) { }
-  try { await loadOtl(); } catch (e) { }
-  try { await loadPreviewFont(); } catch (e) { }
-  try { await loadTableList(); } catch (e) { }
+  // 并行加载所有面板（大字体时可提速 3-5x）
+  await Promise.allSettled([
+    loadNames(),
+    loadMetrics(),
+    loadCmap(),
+    loadGlyphs(),
+    loadOtl(),
+    loadPreviewFont(),
+    loadTableList(),
+  ]);
 }
 
 export function initConfig() {

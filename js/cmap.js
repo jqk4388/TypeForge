@@ -4,12 +4,19 @@
  */
 import { $, state, api, toast } from './state.js';
 
+let _cmapAbort = null;  // 请求取消锁
+
 export function initCmap() {
   $('#cmapSearch')?.addEventListener('input', e => renderCmapTable(e.target.value));
   $('#cmapAddBtn')?.addEventListener('click', onAddCmap);
 }
 
 export async function loadCmap() {
+  // 取消之前未完成的 SVG 加载
+  if (_cmapAbort) _cmapAbort.abort();
+  _cmapAbort = new AbortController();
+  const signal = _cmapAbort.signal;
+
   const res = await api(`/cmap/${state.SID}`);
   const data = await res.json();
   state.cmapData = data.mappings || [];
@@ -34,10 +41,10 @@ export async function loadCmap() {
   const tableEl = document.querySelector('#panel-cmap > div:last-child');
   if (tableEl) tableEl.style.display = '';
 
-  renderCmapTable($('#cmapSearch')?.value || '');
+  renderCmapTable($('#cmapSearch')?.value || '', signal);
 }
 
-async function renderCmapTable(filter = '') {
+async function renderCmapTable(filter = '', signal = null) {
   const lf = filter.toLowerCase();
   const tbody = $('#cmapTable tbody');
   tbody.innerHTML = '';
@@ -45,7 +52,9 @@ async function renderCmapTable(filter = '') {
   const visibleRows = [];
 
   for (const m of state.cmapData) {
-    if (lf && !`${m.unicode.toString(16)} ${m.name} ${m.char || ''}`.toLowerCase().includes(lf)) continue;
+    // 过滤掉字符为空的映射
+    if (!m.char) continue;
+    if (lf && !`${m.unicode.toString(16)} ${m.name} ${m.char}`.toLowerCase().includes(lf)) continue;
     if (shown > 500) break;
     const tr = document.createElement('tr');
     tr.dataset.name = m.name;
@@ -100,6 +109,7 @@ async function renderCmapTable(filter = '') {
   if (!names.length || !state.SID) return;
   // Load in batches of 50
   for (let i = 0; i < names.length; i += 50) {
+    if (signal && signal.aborted) return;  // 已取消则停止
     const batch = names.slice(i, i + 50);
     try {
       const res = await api(`/glyphs-batch-svg/${state.SID}`, {
