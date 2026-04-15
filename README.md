@@ -50,6 +50,7 @@
 | **主题** | 亮色/暗色主题切换，CSS Custom Properties 实现 |
 
 ---
+### 介绍页 **https://jqk4388.github.io/TypeForge/**
 
 ## 快速启动
 
