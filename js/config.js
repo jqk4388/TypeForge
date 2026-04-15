@@ -93,29 +93,96 @@ async function onDiffConfig() {
   } catch (e) { toast(e.message, 'err'); }
 }
 
-async function onPreset(preset) {
-  let config = {};
-  if (preset === 'cjk-vert') {
-    config = {
+// Preset definitions with descriptions
+const PRESETS = {
+  'cjk-vert': {
+    label: 'CJK 竖排优化',
+    desc: '为竖排排版设置推荐的度量值，适配 vhea / OS/2 表',
+    details: [
+      { table: 'vhea', field: 'vertTypoAscender', value: 880, note: '竖排上升线' },
+      { table: 'vhea', field: 'vertTypoDescender', value: -120, note: '竖排下降线' },
+      { table: 'vhea', field: 'vertTypoLineGap', value: 0, note: '竖排行距' },
+      { table: 'OS/2', field: 'sTypoAscender', value: 880, note: '排版上升线' },
+      { table: 'OS/2', field: 'sTypoDescender', value: -120, note: '排版下降线' },
+      { table: 'OS/2', field: 'winAscent', value: 960, note: 'Windows 上升线' },
+      { table: 'OS/2', field: 'winDescent', value: 240, note: 'Windows 下降线' },
+    ],
+    config: {
       metrics: {
         vhea: { vertTypoAscender: 880, vertTypoDescender: -120, vertTypoLineGap: 0 },
         'OS/2': { sTypoAscender: 880, sTypoDescender: -120, winAscent: 960, winDescent: 240 }
       }
-    };
-  } else if (preset === 'mono-fix') {
-    config = { metrics: { post: { isFixedPitch: 1 } } };
-  } else if (preset === 'web-optimize') {
-    config = { metrics: { 'OS/2': { fsSelection: 64 } } };
-  }
-  try {
-    await api(`/config/${state.SID}/apply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config)
+    }
+  },
+  'mono-fix': {
+    label: '等宽修正',
+    desc: '将 post 表 isFixedPitch 标记为 1，声明为等宽字体',
+    details: [
+      { table: 'post', field: 'isFixedPitch', value: 1, note: '等宽标志位（0=否 1=是）' },
+    ],
+    config: { metrics: { post: { isFixedPitch: 1 } } }
+  },
+  'web-optimize': {
+    label: 'Web 优化',
+    desc: '设置 OS/2 fsSelection 第6位，标记 USE_TYPO_METRICS 让浏览器使用 sTypo 值',
+    details: [
+      { table: 'OS/2', field: 'fsSelection', value: 64, note: 'USE_TYPO_METRICS bit (bit 7 = 0x40 = 64)' },
+    ],
+    config: { metrics: { 'OS/2': { fsSelection: 64 } } }
+  },
+};
+
+async function onPreset(preset) {
+  const p = PRESETS[preset];
+  if (!p) return;
+
+  // Build detail panel
+  let detailHtml = `
+    <div style="background:var(--bg-2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-top:8px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px">📋 ${p.label}</div>
+      <div style="font-size:12px;color:var(--tx-2);margin-bottom:10px">${p.desc}</div>
+      <table style="font-size:12px;width:100%">
+        <thead><tr>
+          <th style="text-align:left;padding:3px 6px;color:var(--tx-3)">表</th>
+          <th style="text-align:left;padding:3px 6px;color:var(--tx-3)">字段</th>
+          <th style="text-align:right;padding:3px 6px;color:var(--tx-3)">值</th>
+          <th style="text-align:left;padding:3px 6px;color:var(--tx-3)">说明</th>
+        </tr></thead>
+        <tbody>
+          ${p.details.map(d => `<tr>
+            <td style="padding:3px 6px"><span class="tag tag-ac" style="font-size:10px">${d.table}</span></td>
+            <td style="padding:3px 6px;font-family:monospace">${d.field}</td>
+            <td style="padding:3px 6px;text-align:right;font-weight:600;color:var(--ok)">${d.value}</td>
+            <td style="padding:3px 6px;color:var(--tx-2)">${d.note}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+        <button class="btn-ghost btn-sm" id="presetCancelBtn">取消</button>
+        <button class="btn btn-sm btn-ok" id="presetApplyBtn">✓ 应用此模板</button>
+      </div>
+    </div>`;
+
+  // Show inside cfgContent
+  const cfgContent = $('#cfgContent');
+  if (cfgContent) {
+    cfgContent.innerHTML = detailHtml;
+    cfgContent.querySelector('#presetCancelBtn').addEventListener('click', () => {
+      cfgContent.innerHTML = '';
     });
-    await loadAllPanels();
-    toast('模板已应用');
-  } catch (e) { toast(e.message, 'err'); }
+    cfgContent.querySelector('#presetApplyBtn').addEventListener('click', async () => {
+      try {
+        await api(`/config/${state.SID}/apply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(p.config)
+        });
+        await loadAllPanels();
+        toast(`模板「${p.label}」已应用`);
+        cfgContent.innerHTML = `<div class="card"><p style="color:var(--ok)">✓ 模板「${p.label}」已应用</p></div>`;
+      } catch (e) { toast(e.message, 'err'); }
+    });
+  }
 }
 
 async function onBatchApply() {

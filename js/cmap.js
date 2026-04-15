@@ -1,6 +1,6 @@
 /**
  * TypeForge Pro — Cmap Panel
- * Scheme A | Round 1
+ * Fix: added glyph SVG preview column
  */
 import { $, state, api, toast } from './state.js';
 
@@ -16,22 +16,36 @@ export async function loadCmap() {
   renderCmapTable($('#cmapSearch')?.value || '');
 }
 
-function renderCmapTable(filter = '') {
+async function renderCmapTable(filter = '') {
   const lf = filter.toLowerCase();
   const tbody = $('#cmapTable tbody');
   tbody.innerHTML = '';
   let shown = 0;
+  const visibleRows = [];
+
   for (const m of state.cmapData) {
     if (lf && !`${m.unicode.toString(16)} ${m.name} ${m.char || ''}`.toLowerCase().includes(lf)) continue;
     if (shown > 500) break;
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td style="font-family:monospace">U+${m.unicode.toString(16).toUpperCase().padStart(4, '0')}</td>
+    tr.dataset.name = m.name;
+    tr.innerHTML = `
+      <td class="cmap-preview-cell" data-gname="${m.name}">
+        <span class="cmap-glyph-mini">
+          <svg class="cmap-svg-placeholder" width="32" height="32" viewBox="0 0 32 32">
+            <rect width="32" height="32" fill="none" stroke="var(--bd)" stroke-width="1" rx="2"/>
+            <text x="16" y="22" font-size="16" text-anchor="middle" fill="var(--tx-2)">${m.char || ''}</text>
+          </svg>
+        </span>
+      </td>
+      <td style="font-family:monospace">U+${m.unicode.toString(16).toUpperCase().padStart(4, '0')}</td>
       <td style="font-size:18px">${m.char || ''}</td>
       <td><input class="fld" value="${m.name}" data-uni="${m.unicode}" style="width:150px"></td>
       <td><button class="btn-ghost btn-sm" data-del-uni="${m.unicode}">✕</button></td>`;
     tbody.appendChild(tr);
     shown++;
+    visibleRows.push({ name: m.name, tr });
   }
+
   // Bind edit
   tbody.querySelectorAll('input').forEach(inp => {
     inp.addEventListener('change', async () => {
@@ -59,6 +73,52 @@ function renderCmapTable(filter = '') {
       } catch (e) { toast(e.message, 'err'); }
     });
   });
+
+  // Lazy load SVG previews in batches
+  const names = visibleRows.map(r => r.name).filter(Boolean);
+  if (!names.length || !state.SID) return;
+  // Load in batches of 50
+  for (let i = 0; i < names.length; i += 50) {
+    const batch = names.slice(i, i + 50);
+    try {
+      const res = await api(`/glyphs-batch-svg/${state.SID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ names: batch })
+      });
+      const data = await res.json();
+      const svgs = data.glyphs || {};
+      for (const { name, tr } of visibleRows.slice(i, i + 50)) {
+        const cell = tr.querySelector('.cmap-preview-cell');
+        if (!cell) continue;
+        const svgData = svgs[name];
+        if (svgData && svgData.path) {
+          cell.innerHTML = renderCmapGlyphSvg(svgData);
+        }
+      }
+    } catch (e) {
+      // ignore SVG load error, fallback to char text already shown
+    }
+  }
+}
+
+/**
+ * Render glyph in its em-box (correct positional context).
+ */
+function renderCmapGlyphSvg(svgData) {
+  const aw = svgData.advanceWidth || 1000;
+  const emH = 1000;
+  const asc = 800;   // typical ascender in font units
+  const pad = 30;
+  const vbX = -pad;
+  const vbY = -asc - pad;
+  const vbW = aw + pad * 2;
+  const vbH = emH + pad * 2;
+  return `<svg width="32" height="32" viewBox="${vbX} ${vbY} ${vbW} ${vbH}">
+    <rect x="0" y="${-asc}" width="${aw}" height="${emH}" fill="none" stroke="var(--bd)" stroke-width="12" opacity="0.35"/>
+    <line x1="0" y1="0" x2="${aw}" y2="0" stroke="var(--ok)" stroke-width="8" opacity="0.5"/>
+    <path d="${svgData.path}" fill="var(--ac)" transform="scale(1,-1)"/>
+  </svg>`;
 }
 
 async function onAddCmap() {

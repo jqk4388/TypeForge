@@ -9,15 +9,16 @@ import { $, $$, state, api, toast } from './state.js';
 import { switchToPanel } from './navigation.js';
 
 const BATCH_SIZE = 100;  // 虚拟滚动批次大小
-const ROW_HEIGHT = 80;    // 每行高度(px)
-const VISIBLE_BUFFER = 5; // 额外渲染的行数
+const ROW_HEIGHT = 88;    // 每行高度(px) — 含 gap
+const COLS = 4;
+const VISIBLE_BUFFER = 3; // 额外渲染的行数
 
 let allGlyphs = [];       // 全量字形数据
 let filteredGlyphs = []; // 过滤后的字形
 let selectedGlyphs = new Set(); // 选中的字形
 let previewFontUrl = '';
-let containerHeight = 0;
-let scrollTop = 0;
+let _scrollTop = 0;
+let _raf = null;
 
 export function initGlyphs() {
   $('#glyphSearch')?.addEventListener('input', e => {
@@ -45,19 +46,32 @@ export async function loadGlyphs() {
   allGlyphs = data.glyphs || [];
   filteredGlyphs = [...allGlyphs];
   selectedGlyphs.clear();
-  
+  _scrollTop = 0;
+
   const grid = $('#glyphGrid');
   if (grid) {
-    containerHeight = grid.clientHeight;
-    // 计算总行数（每行4个）
-    const totalRows = Math.ceil(filteredGlyphs.length / 4);
-    grid.style.height = `${totalRows * ROW_HEIGHT}px`;
+    grid.scrollTop = 0;
+    // Wrap with a sizer so overflow-y:auto works correctly
+    ensureGridSizer(grid);
   }
-  
+
   updateCountDisplay();
   ensureFontFace();
   filterAndRender('');
   populateVecGlyphSelect();
+}
+
+/** Create or update the absolutely-positioned sizer inside grid */
+function ensureGridSizer(grid) {
+  let sizer = grid.querySelector('.glyph-sizer');
+  if (!sizer) {
+    sizer = document.createElement('div');
+    sizer.className = 'glyph-sizer';
+    sizer.style.cssText = 'position:absolute;top:0;left:0;width:1px;pointer-events:none';
+    grid.appendChild(sizer);
+  }
+  const totalRows = Math.ceil(filteredGlyphs.length / COLS);
+  sizer.style.height = `${totalRows * ROW_HEIGHT}px`;
 }
 
 /** @font-face */
@@ -91,50 +105,51 @@ function filterAndRender(query = '') {
   } else {
     filteredGlyphs = [...allGlyphs];
   }
-  
+
   const grid = $('#glyphGrid');
   if (!grid) return;
-  
-  const totalRows = Math.ceil(filteredGlyphs.length / 4);
-  grid.style.height = `${totalRows * ROW_HEIGHT}px`;
-  
-  scrollTop = 0;
+
+  _scrollTop = 0;
   grid.scrollTop = 0;
+  ensureGridSizer(grid);
   renderVisibleRows();
   updateCountDisplay();
 }
 
 function renderVisibleRows() {
+  _raf = null;
   const grid = $('#glyphGrid');
   if (!grid) return;
-  
-  containerHeight = grid.clientHeight;
-  const startRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - VISIBLE_BUFFER);
-  const endRow = Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + VISIBLE_BUFFER;
-  const totalRows = Math.ceil(filteredGlyphs.length / 4);
-  
-  // 清除并重新渲染可见行
-  grid.innerHTML = '';
-  
-  for (let row = startRow; row < Math.min(endRow, totalRows); row++) {
+
+  const containerH = grid.clientHeight || 600;
+  const startRow = Math.max(0, Math.floor(_scrollTop / ROW_HEIGHT) - VISIBLE_BUFFER);
+  const endRow = Math.min(
+    Math.ceil(filteredGlyphs.length / COLS),
+    Math.ceil((_scrollTop + containerH) / ROW_HEIGHT) + VISIBLE_BUFFER
+  );
+
+  // Remove old row divs (keep .glyph-sizer)
+  Array.from(grid.children).forEach(c => {
+    if (!c.classList.contains('glyph-sizer')) c.remove();
+  });
+
+  for (let row = startRow; row < endRow; row++) {
     const rowDiv = document.createElement('div');
     rowDiv.className = 'glyph-row';
-    rowDiv.style.cssText = `position:absolute;top:${row * ROW_HEIGHT}px;left:0;right:0;height:${ROW_HEIGHT}px;display:flex;gap:8px;padding:0 4px`;
-    
-    for (let col = 0; col < 4; col++) {
-      const idx = row * 4 + col;
+    rowDiv.style.cssText = `position:absolute;top:${row * ROW_HEIGHT}px;left:0;right:0;height:${ROW_HEIGHT - 8}px;display:grid;grid-template-columns:repeat(${COLS},1fr);gap:8px;padding:0 4px`;
+
+    for (let col = 0; col < COLS; col++) {
+      const idx = row * COLS + col;
       if (idx >= filteredGlyphs.length) break;
-      const g = filteredGlyphs[idx];
-      const card = createGlyphCard(g);
-      rowDiv.appendChild(card);
+      rowDiv.appendChild(createGlyphCard(filteredGlyphs[idx]));
     }
     grid.appendChild(rowDiv);
   }
 }
 
 function onScroll(e) {
-  scrollTop = e.target.scrollTop;
-  requestAnimationFrame(renderVisibleRows);
+  _scrollTop = e.target.scrollTop;
+  if (!_raf) _raf = requestAnimationFrame(renderVisibleRows);
 }
 
 function createGlyphCard(g) {
@@ -202,11 +217,17 @@ function escHtml(s) {
 
 async function loadGlyphDetail(name) {
   try {
-    const res = await api(`/glyph/${state.SID}/${encodeURIComponent(name)}`);
+    const encoded = encodeURIComponent(name);
+    const res = await api(`/glyph/${state.SID}/${encoded}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
     const data = await res.json();
     showGlyphDetailPanel(data);
   } catch (e) {
-    toast('加载字形详情失败: ' + e.message, 'err');
+    const detail = $('#glyphDetail');
+    if (detail) detail.innerHTML = `<p style="color:var(--err);font-size:12px">加载失败: ${escHtml(e.message)}</p><p style="color:var(--tx-3);font-size:11px">字形名: ${escHtml(name)}</p>`;
   }
 }
 

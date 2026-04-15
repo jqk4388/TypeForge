@@ -45,8 +45,14 @@ function renderMetrics(data) {
       ? `<span class="metric-help" title="${desc}">❓</span>`
       : '';
 
-    html += `<div style="display:flex;align-items:center;gap:8px">
-      <span style="font-size:11px;color:var(--tx-2);min-width:140px;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px" title="${key}">${key} ${tooltipHtml}</span>
+    // Show English key name + Chinese description below it
+    const labelHtml = `<span title="${key}" style="display:flex;flex-direction:column;gap:1px">
+      <span style="font-size:11px;color:var(--tx-1);font-weight:600;display:flex;align-items:center;gap:3px">${key} ${tooltipHtml}</span>
+      ${desc ? `<span style="font-size:10px;color:var(--tx-3);line-height:1.2;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${desc}">${desc}</span>` : ''}
+    </span>`;
+
+    html += `<div style="display:flex;align-items:flex-start;gap:8px">
+      <div style="min-width:140px;max-width:140px">${labelHtml}</div>
       ${editable
         ? `<input class="fld" data-key="${key}" value="${val}" style="width:100px" type="number">`
         : `<span style="font-size:13px;color:var(--tx-0);font-weight:600">${val}</span><span style="font-size:10px;color:var(--tx-3)">(只读)</span>`}

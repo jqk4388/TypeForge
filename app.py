@@ -1141,6 +1141,12 @@ def get_glyph(session_id, glyph_name):
     
     try:
         glyph = glyf.get(glyph_name)
+        if glyph is None:
+            # Try direct indexing as fallback
+            try:
+                glyph = glyf[glyph_name]
+            except Exception:
+                pass
     except Exception:
         return jsonify({'error': f'Glyph {glyph_name} not found'}), 404
     
@@ -1896,22 +1902,35 @@ def export_ttx(session_id):
     info = get_font(session_id)
     if not info:
         return jsonify({'error': 'Session not found'}), 404
-    
-    tag = request.args.get('table', None)
+
+    tag = request.args.get('table', None) or None
     font = info['font']
-    
-    buf = io.StringIO()
-    if tag:
-        tbl = font.get(tag)
-        if tbl is None:
-            return jsonify({'error': f'Table {tag} not found'}), 404
-        from fontTools.misc.xmlWriter import XMLWriter
-        writer = XMLWriter(buf)
-        tbl.toXML(writer, font)
-    else:
-        font.saveXML(buf)
-    
-    return jsonify({'ttx': buf.getvalue()})
+
+    try:
+        if tag:
+            # Single table → use XMLWriter to StringIO (works reliably)
+            tbl = font.get(tag)
+            if tbl is None:
+                return jsonify({'error': f'Table {tag} not found'}), 404
+            from fontTools.misc.xmlWriter import XMLWriter
+            buf = io.StringIO()
+            writer = XMLWriter(buf)
+            tbl.toXML(writer, font)
+            return jsonify({'ttx': buf.getvalue()})
+        else:
+            # Full font TTX — save to temp file then read back
+            ttx_path = os.path.join(FONTS_DIR, f"{session_id}_export.ttx")
+            font.saveXML(ttx_path)
+            with open(ttx_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            try:
+                os.unlink(ttx_path)
+            except Exception:
+                pass
+            return jsonify({'ttx': content})
+    except Exception as e:
+        dbg("TTX export error: %s", traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/ttx/<session_id>', methods=['POST'])
 def import_ttx(session_id):

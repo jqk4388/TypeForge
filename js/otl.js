@@ -56,16 +56,34 @@ function treeNode(label, content, collapsed = true) {
   </div>`;
 }
 
-/** Generate mini SVG for a glyph name */
-function glyphMiniSvg(glyphName, svgData) {
+/**
+ * Generate mini SVG for a glyph name.
+ * The glyph is shown inside the full em-square so its visual position
+ * (e.g. comma at bottom-left, vertical-form comma at top-right) is preserved.
+ *
+ * @param {string}  glyphName
+ * @param {object}  svgData   { path, bounds:[xMin,yMin,xMax,yMax], advanceWidth }
+ * @param {number}  [emSize=1000]   units-per-em assumed value
+ */
+function glyphMiniSvg(glyphName, svgData, emSize = 1000) {
   if (!svgData || !svgData.path) return `<span class="tag">${glyphName}</span>`;
   const bounds = svgData.bounds || [0, -200, 500, 800];
-  const w = (bounds[2] - bounds[0]) || 1000;
-  const h = (bounds[3] - bounds[1]) || 1000;
-  const pad = 8;
+  const aw = svgData.advanceWidth || emSize;
+  const pad = 20;            // padding in font units
+  // Use the advance width as the em-box width, em as height
+  // em-box: x=[0, aw], y=[descender, ascender] → we use typical [−200, 800] for 1000-unit em
+  const boxX = 0 - pad;
+  const boxY = -(emSize * 0.8) - pad;   // typical ascender ~800
+  const boxW = aw + pad * 2;
+  const boxH = emSize + pad * 2;
   return `<span class="glyph-mini" title="${glyphName}">
-    <svg viewBox="${bounds[0] - pad} ${-bounds[3] - pad} ${w + pad * 2} ${h + pad * 2}" width="24" height="24">
-      <path d="${svgData.path}" fill="var(--ac)" fill-opacity="0.3" stroke="var(--ac)" stroke-width="4" transform="scale(1,-1)"/>
+    <svg viewBox="${boxX} ${boxY} ${boxW} ${boxH}" width="28" height="28">
+      <!-- em-box outline -->
+      <rect x="0" y="${-(emSize * 0.8)}" width="${aw}" height="${emSize}" fill="none" stroke="var(--bd)" stroke-width="8" opacity="0.4"/>
+      <!-- baseline -->
+      <line x1="0" y1="0" x2="${aw}" y2="0" stroke="var(--ok)" stroke-width="4" opacity="0.5"/>
+      <!-- glyph path (font coords: y-up → SVG y-down via scale(1,-1)) -->
+      <path d="${svgData.path}" fill="var(--ac)" fill-opacity="0.9" transform="scale(1,-1)"/>
     </svg>
   </span>`;
 }

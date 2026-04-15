@@ -89,7 +89,7 @@
         <input class="fld" id="cmapSearch" placeholder="搜索 Unicode、字形名或字符..." style="max-width:300px">
         <button class="btn btn-sm" id="cmapAddBtn">+ 添加映射</button>
       </div>
-      <div style="overflow-x:auto;max-height:60vh;overflow-y:auto"><table id="cmapTable"><thead><tr><th>Unicode</th><th>字符</th><th>字形名</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div style="overflow-x:auto;max-height:60vh;overflow-y:auto"><table id="cmapTable"><thead><tr><th>预览</th><th>Unicode</th><th>字符</th><th>字形名</th><th></th></tr></thead><tbody></tbody></table></div>
     </div>
 
     <!-- Glyphs Panel (Grid Layout) -->
@@ -184,11 +184,11 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div>
           <div class="lbl" style="margin-bottom:6px">横排 <span class="tag tag-ok">horizontal-tb</span></div>
-          <div id="previewH" style="border:1px solid var(--bd);border-radius:8px;padding:20px;min-height:200px;overflow:auto;writing-mode:horizontal-tb"></div>
+          <iframe id="previewIframeH" style="width:100%;height:260px;border:1px solid var(--bd);border-radius:8px;background:#fff" sandbox="allow-same-origin"></iframe>
         </div>
         <div>
           <div class="lbl" style="margin-bottom:6px">竖排 <span class="tag tag-warn">vertical-rl</span></div>
-          <div id="previewV" style="border:1px solid var(--bd);border-radius:8px;padding:20px;min-height:200px;overflow:auto;writing-mode:vertical-rl"></div>
+          <iframe id="previewIframeV" style="width:100%;height:260px;border:1px solid var(--bd);border-radius:8px;background:#fff" sandbox="allow-same-origin"></iframe>
         </div>
       </div>
     </div>

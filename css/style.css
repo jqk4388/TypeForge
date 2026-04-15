@@ -293,3 +293,16 @@ input[type=range]::-webkit-slider-thumb {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--bd); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--bd-h); }
+
+/* ─── Cmap glyph preview cell ─────────────────────────────────── */
+.cmap-preview-cell { width: 40px; text-align: center; vertical-align: middle; padding: 2px 4px; }
+.cmap-glyph-mini { display: inline-flex; align-items: center; justify-content: center; }
+.cmap-glyph-mini svg { display: block; }
+
+/* ─── Glyph grid: sizer for virtual scroll ────────────────────── */
+.glyph-grid-virtual { position: relative; }
+.glyph-sizer { position: absolute; top: 0; left: 0; width: 1px; pointer-events: none; }
+
+/* ─── OTL glyph mini SVG positioning ─────────────────────────── */
+.glyph-mini svg { display: inline-block; vertical-align: middle; }
+

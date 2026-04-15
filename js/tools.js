@@ -14,16 +14,25 @@ export function initTools() {
 }
 
 async function onTtxExport() {
-  if (!state.SID) return;
+  if (!state.SID) { toast('请先加载字体', 'warn'); return; }
   const table = $('#ttxTable')?.value || '';
+  const btn = $('#ttxExportBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '导出中…'; }
   try {
-    const res = await api(`/ttx/${state.SID}?table=${table}`);
+    const url = `/api/ttx/${state.SID}` + (table ? `?table=${encodeURIComponent(table)}` : '');
+    const res = await api(url);
     const data = await res.json();
+    if (data.error) throw new Error(data.error);
     const ttxOutput = $('#ttxOutput');
     if (ttxOutput) ttxOutput.style.display = 'block';
     const ttxContent = $('#ttxContent');
-    if (ttxContent) ttxContent.textContent = data.ttx;
-  } catch (e) { toast(e.message, 'err'); }
+    if (ttxContent) ttxContent.textContent = data.ttx || '(空)';
+    toast('TTX 导出成功');
+  } catch (e) {
+    toast('TTX 导出失败: ' + e.message, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '导出 TTX'; }
+  }
 }
 
 async function onSubset() {

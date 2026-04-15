@@ -1,0 +1,358 @@
+<!--
+  Scheme: C (Role — Senior Tool Developer)
+  Round: 01
+  Change: Initial implementation — workflow-oriented font editor with premium UX
+  Score: TBD (round 1 cap 7)
+  Biggest issue from last round: N/A (first round)
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TypeForge Pro — 专业字体编辑器</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
+<style>
+  :root {
+    --bg-0: #0a0a0f; --bg-1: #12121a; --bg-2: #1a1a26; --bg-3: #222233;
+    --tx-0: #eeeef0; --tx-1: #aaaabc; --tx-2: #777790; --tx-3: #55556a;
+    --bd: #2a2a3d; --bd-h: #3a3a55;
+    --ac: #7c5cfc; --ac-h: #6a48e8; --ac-bg: rgba(124,92,252,0.1);
+    --ok: #2dd4a0; --err: #f43f5e; --warn: #fbbf24;
+    --mod: rgba(251,191,36,0.12); --mod-b: #fbbf24;
+    --glass: rgba(255,255,255,0.03);
+  }
+  [data-theme="light"] {
+    --bg-0: #f5f5f7; --bg-1: #ffffff; --bg-2: #eeeef2; --bg-3: #dddde3;
+    --tx-0: #111118; --tx-1: #444455; --tx-2: #888899; --tx-3: #aaaabc;
+    --bd: #d8d8e0; --bd-h: #c0c0cc;
+    --ac: #6a48e8; --ac-h: #5a38d8; --ac-bg: rgba(106,72,232,0.08);
+    --mod: rgba(217,119,6,0.1); --mod-b: #d97706;
+    --glass: rgba(0,0,0,0.02);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'SF Pro Display', -apple-system, 'Segoe UI', system-ui, sans-serif; background: var(--bg-0); color: var(--tx-0); overflow: hidden; }
+
+  /* Layout */
+  .layout { display: grid; grid-template-rows: 52px 1fr; grid-template-columns: 56px 1fr; height: 100vh; }
+  .topbar { grid-column: 1/-1; background: var(--bg-1); border-bottom: 1px solid var(--bd); display: flex; align-items: center; padding: 0 20px; gap: 16px; }
+  .rail { background: var(--bg-1); border-right: 1px solid var(--bd); display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 2px; overflow-y: auto; }
+  .workspace { overflow-y: auto; padding: 24px; background: var(--bg-0); }
+
+  /* Rail items */
+  .rail-btn { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; cursor: pointer; font-size: 18px; border: none; background: transparent; color: var(--tx-2); transition: all .2s; position: relative; }
+  .rail-btn:hover { background: var(--ac-bg); color: var(--ac); }
+  .rail-btn.active { background: var(--ac-bg); color: var(--ac); }
+  .rail-btn.active::before { content: ''; position: absolute; left: -8px; top: 50%; transform: translateY(-50%); width: 3px; height: 20px; background: var(--ac); border-radius: 2px; }
+  .rail-btn[title]:hover::after { content: attr(title); position: absolute; left: 48px; background: var(--bg-3); color: var(--tx-0); padding: 4px 10px; border-radius: 6px; font-size: 12px; white-space: nowrap; z-index: 100; pointer-events: none; }
+
+  /* Inputs */
+  .field { background: var(--bg-2); color: var(--tx-0); border: 1px solid var(--bd); border-radius: 8px; padding: 7px 12px; font-size: 13px; width: 100%; transition: all .2s; }
+  .field:focus { outline: none; border-color: var(--ac); box-shadow: 0 0 0 3px var(--ac-bg); }
+  .field.mod { background: var(--mod) !important; border-color: var(--mod-b) !important; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--bd); background: var(--bg-2); color: var(--tx-0); transition: all .15s; }
+  .btn:hover { border-color: var(--ac); background: var(--ac-bg); }
+  .btn-ac { background: var(--ac); color: #fff; border-color: var(--ac); }
+  .btn-ac:hover { background: var(--ac-h); }
+  .btn-xs { padding: 3px 8px; font-size: 11px; border-radius: 6px; }
+
+  /* Cards */
+  .card { background: var(--bg-1); border: 1px solid var(--bd); border-radius: 14px; padding: 18px; margin-bottom: 14px; backdrop-filter: blur(10px); }
+  .card-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  .lbl { font-size: 11px; color: var(--tx-2); margin-bottom: 3px; font-weight: 500; letter-spacing: 0.02em; }
+
+  /* Tables */
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.tbl th { background: var(--bg-2); padding: 7px 10px; text-align: left; font-weight: 500; color: var(--tx-2); border-bottom: 1px solid var(--bd); position: sticky; top: 0; z-index: 1; }
+  table.tbl td { padding: 5px 10px; border-bottom: 1px solid var(--bd); }
+  table.tbl tr:hover td { background: var(--ac-bg); }
+
+  /* Preview */
+  .pv-area { border-radius: 14px; border: 1px solid var(--bd); padding: 24px; min-height: 120px; transition: all .3s; overflow: auto; position: relative; }
+  .pv-area::before { content: attr(data-label); position: absolute; top: 8px; right: 12px; font-size: 10px; color: var(--tx-3); font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+
+  /* Badges */
+  .tag { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; letter-spacing: .02em; }
+  .tag-ac { background: var(--ac-bg); color: var(--ac); }
+  .tag-w { background: var(--mod); color: var(--warn); }
+  .tag-ok { background: rgba(45,212,160,0.12); color: var(--ok); }
+
+  /* Drop zone */
+  .landing { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; border: 2px dashed var(--bd); border-radius: 20px; cursor: pointer; transition: all .3s; padding: 40px; }
+  .landing:hover, .landing.over { border-color: var(--ac); background: var(--ac-bg); }
+
+  /* Section */
+  .section { display: none; }
+  .section.on { display: block; animation: fadeIn .2s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; border-radius: 10px; color: #fff; font-size: 13px; z-index: 999; animation: fadeUp .3s; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--bd); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--tx-3); }
+
+  /* Glass effect */
+  .glass { background: var(--glass); backdrop-filter: blur(20px) saturate(150%); }
+
+  /* Writing modes */
+  .wm-h { writing-mode: horizontal-tb; }
+  .wm-v { writing-mode: vertical-rl; text-orientation: mixed; }
+</style>
+</head>
+<body data-theme="dark">
+<div class="layout">
+
+<!-- Top Bar -->
+<header class="topbar">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span style="font-size:20px;">⬡</span>
+    <div>
+      <div style="font-size:14px;font-weight:700;line-height:1.2;">TypeForge Pro</div>
+      <div style="font-size:10px;color:var(--tx-2);">专业字体编辑工作台</div>
+    </div>
+  </div>
+  <div style="flex:1;"></div>
+  <div id="fontBadge" style="display:none;" class="tag tag-ac">未加载</div>
+  <button class="btn btn-xs" id="undoBtn" onclick="undo()" disabled>↩ 撤销</button>
+  <button class="btn btn-xs" id="redoBtn" onclick="redo()" disabled>↪ 重做</button>
+  <span style="color:var(--bd);">|</span>
+  <button class="btn btn-xs" onclick="toggleTheme()" id="themeBtn">☀ 亮色</button>
+</header>
+
+<!-- Rail (Icon sidebar) -->
+<nav class="rail">
+  <button class="rail-btn active" data-s="preview" onclick="nav(this)" title="预览">👁</button>
+  <button class="rail-btn" data-s="names" onclick="nav(this)" title="名称">🏷</button>
+  <button class="rail-btn" data-s="metrics" onclick="nav(this)" title="度量">📏</button>
+  <button class="rail-btn" data-s="cmap" onclick="nav(this)" title="字符映射">🗺</button>
+  <button class="rail-btn" data-s="glyphs" onclick="nav(this)" title="字形">✒</button>
+  <div style="flex:1;"></div>
+  <button class="rail-btn" data-s="config" onclick="nav(this)" title="配置">⚙</button>
+  <button class="rail-btn" data-s="subset" onclick="nav(this)" title="子集化">✂</button>
+  <button class="rail-btn" data-s="ttx" onclick="nav(this)" title="TTX">📄</button>
+  <div style="height:8px;"></div>
+  <button class="rail-btn" onclick="document.getElementById('fileIn').click()" title="打开字体">📂</button>
+  <button class="rail-btn" onclick="saveFont('ttf')" title="保存 TTF">💾</button>
+  <input type="file" id="fileIn" accept=".ttf,.otf,.woff" style="display:none" onchange="onFile(event)">
+</nav>
+
+<!-- Workspace -->
+<main class="workspace" id="workspace">
+
+<!-- Landing -->
+<div id="landing" class="landing" ondrop="onDrop(event)" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" onclick="document.getElementById('fileIn').click()">
+  <div style="font-size:56px;margin-bottom:16px;filter:grayscale(.3);">🔤</div>
+  <div style="font-size:20px;font-weight:700;margin-bottom:6px;">拖入字体文件开始</div>
+  <div style="font-size:14px;color:var(--tx-2);margin-bottom:20px;">TTF · OTF · WOFF</div>
+  <button class="btn btn-ac">选择文件</button>
+</div>
+
+<!-- PREVIEW -->
+<section id="preview" class="section on">
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:18px;">
+    <div style="flex:2;min-width:200px;"><div class="lbl">预览文本</div><input class="field" id="pvTxt" value="永東南國風雲 龍飛鳳舞天地 ABCabc 0123456789" oninput="pvUpdate()" style="font-size:14px;"></div>
+    <div style="min-width:110px;"><div class="lbl">字号 <span id="szLbl">36</span>px</div><input type="range" id="pvSz" min="8" max="200" value="36" oninput="pvUpdate()" style="width:100%;"></div>
+    <div style="min-width:90px;"><div class="lbl">行距</div><input type="range" id="pvLh" min="1" max="3" step="0.1" value="1.5" oninput="pvUpdate()" style="width:100%;"></div>
+    <div><div class="lbl">背景</div><div style="display:flex;gap:3px;"><button class="btn btn-xs" onclick="pvBg('#ffffff')" style="background:#fff;color:#000">白</button><button class="btn btn-xs" onclick="pvBg('#000000')" style="background:#000;color:#fff">黑</button><button class="btn btn-xs" onclick="pvBg('#6b7280')">灰</button><input type="color" id="pvBgC" value="#f8fafc" onchange="pvBg(this.value)" style="width:26px;height:26px;border:none;cursor:pointer;border-radius:6px;"></div></div>
+    <div><div class="lbl">视图</div><div style="display:flex;gap:3px;"><button class="btn btn-xs btn-ac" id="mBoth" onclick="pvMode('both')">并排</button><button class="btn btn-xs" id="mHoriz" onclick="pvMode('h')">横排</button><button class="btn btn-xs" id="mVert" onclick="pvMode('v')">竖排</button></div></div>
+  </div>
+  <div id="pvWrap" style="display:flex;gap:16px;">
+    <div id="pvHBox" style="flex:1;"><div class="pv-area wm-h glass" id="pvH" style="background:#fff;color:#000;" data-label="HORIZONTAL-TB"><span id="pvHSpan" style="font-size:36px;line-height:1.5;">加载字体后预览</span></div></div>
+    <div id="pvVBox" style="flex:1;"><div class="pv-area wm-v glass" id="pvV" style="background:#fff;color:#000;height:400px;" data-label="VERTICAL-RL"><span id="pvVSpan" style="font-size:36px;line-height:1.5;">加载字体后预览</span></div></div>
+  </div>
+</section>
+
+<!-- NAMES -->
+<section id="names" class="section">
+  <div style="display:flex;gap:16px;">
+    <div style="flex:1;">
+      <div class="card"><div class="card-title">🏷 快捷编辑</div><div id="nQuick" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"></div></div>
+      <div class="card"><div class="card-title">🔍 批量替换</div><div style="display:flex;gap:6px;"><input class="field" id="nFind" placeholder="查找"><input class="field" id="nRepl" placeholder="替换"><button class="btn btn-ac btn-xs" onclick="nBatch()">执行</button></div></div>
+    </div>
+    <div style="flex:1.5;"><div class="card"><div class="card-title">📋 全部记录</div><div style="overflow:auto;max-height:480px;"><table class="tbl"><thead><tr><th>ID</th><th>平台</th><th>语言</th><th>值</th><th></th></tr></thead><tbody id="nTb"></tbody></table></div></div></div>
+  </div>
+</section>
+
+<!-- METRICS -->
+<section id="metrics" class="section">
+  <div style="display:flex;gap:14px;flex-wrap:wrap;">
+    <div class="card" style="flex:1;min-width:240px;"><div class="card-title">📐 hhea</div><div id="mH" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"></div></div>
+    <div class="card" style="flex:1;min-width:240px;"><div class="card-title">📐 vhea</div><div id="mV" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"></div></div>
+    <div class="card" style="flex:1;min-width:240px;"><div class="card-title">📐 OS/2</div><div id="mO" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"></div></div>
+    <div class="card" style="flex:1;min-width:240px;"><div class="card-title">📐 head</div><div id="mHd" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"></div></div>
+    <div class="card" style="flex:1;min-width:240px;"><div class="card-title">📐 post</div><div id="mP" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"></div></div>
+  </div>
+  <div class="card" style="margin-top:10px;"><div class="card-title">🔄 批量缩放</div><div style="display:flex;gap:8px;align-items:center;"><input class="field" type="number" id="scPct" value="100" style="width:70px;"> % <button class="btn btn-ac btn-xs" onclick="scaleMet()">应用</button><span style="font-size:11px;color:var(--tx-3);">缩放 hhea/vhea/OS/2 数值</span></div></div>
+</section>
+
+<!-- CMAP -->
+<section id="cmap" class="section">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div class="card-title" style="margin:0;">🗺 字符映射</div>
+      <div style="display:flex;gap:6px;"><input class="field" id="cmSrch" placeholder="搜索" oninput="cmF()" style="width:200px;"><button class="btn btn-xs" onclick="cmAdd()">+ 添加</button></div>
+    </div>
+    <div style="overflow:auto;max-height:480px;"><table class="tbl"><thead><tr><th>Unicode</th><th>字符</th><th>Glyph</th><th>索引</th><th></th></tr></thead><tbody id="cmTb"></tbody></table></div>
+  </div>
+</section>
+
+<!-- GLYPHS -->
+<section id="glyphs" class="section">
+  <div style="display:flex;gap:16px;">
+    <div style="width:340px;"><div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="card-title" style="margin:0;">✒ 字形</div><input class="field" id="glSrch" placeholder="搜索" oninput="glF()" style="width:100px;"></div><div id="glList" style="overflow:auto;max-height:480px;display:flex;flex-wrap:wrap;gap:4px;"></div></div></div>
+    <div style="flex:1;"><div class="card"><div class="card-title">详情</div><div id="glDet" style="text-align:center;color:var(--tx-3);">点击字形</div></div><div class="card" id="glMC" style="display:none;"><div class="card-title">度量</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"><div><div class="lbl">Advance Width</div><input class="field" type="number" id="glAW" onchange="glSetM('aw',this.value)"></div><div><div class="lbl">LSB</div><input class="field" type="number" id="glLSB" onchange="glSetM('lsb',this.value)"></div></div></div></div>
+  </div>
+</section>
+
+<!-- CONFIG -->
+<section id="config" class="section">
+  <div style="display:flex;gap:16px;">
+    <div style="flex:1;">
+      <div class="card">
+        <div class="card-title">💾 配置管理</div>
+        <div style="display:flex;gap:6px;margin-bottom:12px;"><button class="btn btn-ac" onclick="cfgSave()">保存 JSON</button><button class="btn" onclick="document.getElementById('cfgIn').click()">加载配置</button><input type="file" id="cfgIn" accept=".json" style="display:none" onchange="cfgLoad(event)"></div>
+        <div class="card-title" style="font-size:12px;">预置模板</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;"><button class="btn btn-xs" onclick="cfgPre('cjk')">CJK竖排优化</button><button class="btn btn-xs" onclick="cfgPre('mono')">等宽修正</button><button class="btn btn-xs" onclick="cfgPre('web')">Web字体优化</button></div>
+      </div>
+      <div class="card"><div class="card-title">📦 批量应用</div><p style="font-size:11px;color:var(--tx-2);margin-bottom:8px;">选择多个字体，一键应用配置</p><button class="btn btn-ac" onclick="document.getElementById('batIn').click()">选择字体文件</button><input type="file" id="batIn" accept=".ttf,.otf,.woff" multiple style="display:none" onchange="cfgBat(event)"><div id="batSt" style="margin-top:8px;font-size:11px;"></div></div>
+    </div>
+    <div style="flex:1;"><div class="card"><div class="card-title">🔍 Diff 对比</div><div id="cfgDiff" style="font-size:11px;overflow:auto;max-height:400px;color:var(--tx-3);">加载配置后查看差异</div></div></div>
+  </div>
+</section>
+
+<!-- SUBSET -->
+<section id="subset" class="section">
+  <div class="card"><div class="card-title">✂ 子集化</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"><div><div class="lbl">保留字符</div><textarea class="field" id="subCh" rows="4" placeholder="直接输入字符"></textarea></div><div><div class="lbl">Unicode 范围 (hex)</div><textarea class="field" id="subRng" rows="4" placeholder="4E00-9FFF&#10;3000-303F"></textarea></div></div><button class="btn btn-ac" style="margin-top:10px;" onclick="doSub()">执行并下载</button></div>
+</section>
+
+<!-- TTX -->
+<section id="ttx" class="section">
+  <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="card-title" style="margin:0;">📄 TTX XML</div><button class="btn btn-ac btn-xs" onclick="genTTX()">生成</button></div><div id="ttxOut" style="overflow:auto;max-height:480px;"><pre style="font-size:11px;color:var(--tx-2);white-space:pre-wrap;font-family:'SF Mono',monospace;">点击"生成"查看</pre></div></div>
+</section>
+
+</main>
+</div>
+
+<script>
+// === State ===
+const D = { font:null, buf:null, fname:'', mods:{}, undos:[], redos:[], cfg:null, cmD:[], selG:-1, ffN:'' };
+const $=id=>document.getElementById(id);
+const esc=t=>{if(t==null)return'';const d=document.createElement('div');d.textContent=String(t);return d.innerHTML;};
+
+// Theme
+function toggleTheme(){const d=document.body.dataset.theme==='dark';document.body.dataset.theme=d?'light':'dark';$('themeBtn').textContent=d?'🌙 暗色':'☀ 亮色';}
+
+// Undo/Redo
+function pushU(a){D.undos.push(a);D.redos=[];updUR();}
+function undo(){if(!D.undos.length)return;const a=D.undos.pop();a.u();D.redos.push(a);refresh();updUR();}
+function redo(){if(!D.redos.length)return;const a=D.redos.pop();a.r();D.undos.push(a);refresh();updUR();}
+function updUR(){$('undoBtn').disabled=!D.undos.length;$('redoBtn').disabled=!D.redos.length;}
+
+// Nav
+function nav(btn){document.querySelectorAll('.rail-btn[data-s]').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.section').forEach(s=>s.classList.remove('on'));btn.classList.add('active');$(btn.dataset.s).classList.add('on');}
+
+// Toast
+function toast(m,ok=true){const t=document.createElement('div');t.className='toast';t.style.background=ok?'var(--ok)':'var(--err)';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2500);}
+
+// File
+function onFile(e){const f=e.target.files[0];if(f)loadF(f);}
+function onDrop(e){e.preventDefault();e.currentTarget.classList.remove('over');if(e.dataTransfer.files[0])loadF(e.dataTransfer.files[0]);}
+function loadF(file){const r=new FileReader();r.onload=e=>{try{D.buf=e.target.result;D.font=opentype.parse(D.buf);D.fname=file.name;D.mods={};D.undos=[];D.redos=[];buildCm();setupFF();$('landing').style.display='none';$('fontBadge').style.display='inline-flex';$('fontBadge').textContent=file.name;refresh();toast('已加载');}catch(err){toast('加载失败: '+err.message,false);}};r.readAsArrayBuffer(file);}
+
+function setupFF(){const o=$('dynFF');if(o)o.remove();const b=new Blob([D.buf],{type:'font/ttf'}),u=URL.createObjectURL(b);D.ffN='TF'+Date.now();const s=document.createElement('style');s.id='dynFF';s.textContent=`@font-face{font-family:'${D.ffN}';src:url('${u}')format('truetype');}`;document.head.appendChild(s);$('pvHSpan').style.fontFamily=`'${D.ffN}',serif`;$('pvVSpan').style.fontFamily=`'${D.ffN}',serif`;}
+function rebuildFF(){try{D.buf=D.font.toArrayBuffer();setupFF();}catch(e){}}
+function saveFont(fmt){if(!D.font)return toast('请先加载',false);const b=D.font.toArrayBuffer(),bl=new Blob([b],{type:fmt==='woff'?'font/woff':'font/ttf'}),a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download=D.fname.replace(/\.[^.]+$/,'')+'_edit.'+fmt;a.click();toast('已下载');}
+
+// Info
+function updInfo(){if(!D.font)return;const f=D.font,n=f.names;const fam=en(n.fontFamily)||'?';const sub=en(n.fontSubfamily)||'';$('fontBadge').textContent=fam+' '+sub;}
+
+function en(o){if(!o)return'';if(o.en)return o.en;const k=Object.keys(o);return k.length?o[k[0]]:'';}
+
+// Preview
+function pvUpdate(){if(!D.font)return;const t=$('pvTxt').value,sz=$('pvSz').value,lh=$('pvLh').value;$('szLbl').textContent=sz;$('pvHSpan').textContent=t||' ';$('pvVSpan').textContent=t||' ';$('pvHSpan').style.fontSize=sz+'px';$('pvVSpan').style.fontSize=sz+'px';$('pvHSpan').style.lineHeight=lh;$('pvVSpan').style.lineHeight=lh;}
+function pvBg(c){$('pvH').style.background=c;$('pvV').style.background=c;const br=parseInt(c.slice(1),16);const d=(br&0xFF)*.299+((br>>8)&0xFF)*.587+((br>>16)&0xFF)*.114<128;$('pvHSpan').style.color=$('pvVSpan').style.color=d?'#fff':'#000';}
+function pvMode(m){['mBoth','mHoriz','mVert'].forEach(id=>{$(id).classList.remove('btn-ac');});$(m==='both'?'mBoth':m==='h'?'mHoriz':'mVert').classList.add('btn-ac');$('pvHBox').style.display=m==='v'?'none':'block';$('pvVBox').style.display=m==='h'?'none':'block';}
+
+// Name
+const NID={0:'Copyright',1:'族名',2:'子族',3:'UID',4:'全名',5:'版本',6:'PS名',7:'商标',8:'厂商',9:'设计师',10:'描述',11:'许可证',13:'许可信息',14:'许可URL'};
+function enId(n,id){if(!n[id])return'';const e=n[id];if(typeof e==='string')return e;if(e.en)return e.en;const k=Object.keys(e);return k.length?e[k[0]]:'';}
+
+function refN(){if(!D.font)return;const n=D.font.names;
+$('nQuick').innerHTML=[1,2,4,5,6,8,9,11,13].map(id=>{const v=enId(n,id),l=NID[id]||id,m=D.mods[`n.${id}`];return`<div><div class="lbl">${id}: ${l}${m?' <span class="tag tag-w">已改</span>':''}</div><input class="field${m?' mod':''}" value="${esc(v)}" onchange="setN(${id},this.value)"></div>`;}).join('');
+
+$('nTb').innerHTML='';Object.keys(n).forEach(k=>{const id=parseInt(k);if(isNaN(id))return;const e=n[id];if(typeof e!=='object'||!e)return;Object.keys(e).forEach(pk=>{if(typeof e[pk]!=='string')return;const m=D.mods[`n.${id}.${pk}`];$('nTb').innerHTML+=`<tr><td>${id}</td><td>${pk.startsWith('3')?'Win':pk.startsWith('1')?'Mac':pk}</td><td>${pk}</td><td class="${m?'mod':''}"><input class="field" value="${esc(e[pk])}" style="font-size:11px;" onchange="setNF(${id},'${pk}',this.value)"></td><td><button class="btn btn-xs" onclick="delN(${id},'${pk}')">✕</button></td></tr>`;});});
+}
+
+function setN(id,v){const f=D.font,old=enId(f.names,id);pushU({u:()=>{f.names[id]={en:old};},r:()=>{f.names[id]={en:v};}});f.names[id]={en:v};D.mods[`n.${id}`]=1;refN();rebuildFF();pvUpdate();}
+function setNF(id,pk,v){const f=D.font,old=f.names[id]?f.names[id][pk]:'';pushU({u:()=>{if(f.names[id])f.names[id][pk]=old;},r:()=>{if(!f.names[id])f.names[id]={};f.names[id][pk]=v;}});if(!f.names[id])f.names[id]={};f.names[id][pk]=v;D.mods[`n.${id}.${pk}`]=1;refN();rebuildFF();}
+function delN(id,pk){const f=D.font,old=f.names[id]?f.names[id][pk]:'';pushU({u:()=>{if(f.names[id])f.names[id][pk]=old;},r:()=>{if(f.names[id])delete f.names[id][pk];}});if(f.names[id])delete f.names[id][pk];refN();}
+function nBatch(){const find=$('nFind').value,rep=$('nRepl').value;if(!find)return toast('输入查找内容',false);let c=0;const f=D.font;Object.keys(f.names).forEach(id=>{const e=f.names[id];if(typeof e==='object')Object.keys(e).forEach(k=>{if(typeof e[k]==='string'&&e[k].includes(find)){e[k]=e[k].split(find).join(rep);c++;D.mods[`n.${id}.${k}`]=1;}});});refN();rebuildFF();toast(`替换 ${c} 处`);}
+
+// Metrics
+function refM(){if(!D.font)return;const f=D.font;
+mf('mH','hhea',[['ascender','Ascent'],['descender','Descent'],['lineGap','LineGap']]);
+if(f.tables.vhea)mf('mV','vhea',[['vertTypoAscender','V.Asc'],['vertTypoDescender','V.Desc'],['vertTypoLineGap','V.LG']]);else $('mV').innerHTML='<div style="color:var(--tx-3);font-size:11px;grid-column:1/-1;">无 vhea 表</div>';
+if(f.tables.os2)mf('mO','os2',[['sTypoAscender','sTypoAsc'],['sTypoDescender','sTypoDesc'],['sTypoLineGap','sTypoLG'],['winAscent','winAsc'],['winDescent','winDesc']]);
+mf('mHd','head',[['unitsPerEm','UPM',1],['xMin','xMin',1],['yMin','yMin',1],['xMax','xMax',1],['yMax','yMax',1]]);
+if(f.tables.post)mf('mP','post',[['underlinePosition','UL Pos'],['underlineThickness','UL Thick']]);
+}
+
+function mf(el,tbl,fields){const f=D.font,t=f.tables[tbl];if(!t)return;$(el).innerHTML=fields.map(([k,l,ro])=>{const m=D.mods[`${tbl}.${k}`];const ra=ro===1?'readonly style="opacity:.5"':'';return`<div><div class="lbl">${l}${m?' <span class="tag tag-w">已改</span>':''}</div><input class="field${m?' mod':''}" type="number" value="${t[k]}" ${ra} onchange="setM('${tbl}','${k}',this.value)"></div>`;}).join('');}
+
+function setM(tbl,k,v){const f=D.font,t=f.tables[tbl];if(!t)return;const nv=parseFloat(v),ov=t[k];pushU({u:()=>{t[k]=ov;if(tbl==='hhea'&&k==='ascender')f.ascender=ov;if(tbl==='hhea'&&k==='descender')f.descender=ov;},r:()=>{t[k]=nv;if(tbl==='hhea'&&k==='ascender')f.ascender=nv;if(tbl==='hhea'&&k==='descender')f.descender=nv;}});t[k]=nv;D.mods[`${tbl}.${k}`]=1;if(tbl==='hhea'&&k==='ascender')f.ascender=nv;if(tbl==='hhea'&&k==='descender')f.descender=nv;refM();rebuildFF();pvUpdate();}
+
+function scaleMet(){const pct=parseFloat($('scPct').value);if(isNaN(pct)||pct<=0)return toast('无效',false);const f=D.font,s=pct/100;if(f.tables.hhea)['ascender','descender','lineGap'].forEach(k=>{f.tables.hhea[k]=Math.round(f.tables.hhea[k]*s);});if(f.tables.vhea)['vertTypoAscender','vertTypoDescender','vertTypoLineGap'].forEach(k=>{f.tables.vhea[k]=Math.round(f.tables.vhea[k]*s);});if(f.tables.os2)['sTypoAscender','sTypoDescender','sTypoLineGap','winAscent','winDescent'].forEach(k=>{f.tables.os2[k]=Math.round(f.tables.os2[k]*s);});f.ascender=Math.round(f.ascender*s);f.descender=Math.round(f.descender*s);D.mods['hhea.*']=1;refM();rebuildFF();pvUpdate();toast(`缩放 ${pct}%`);}
+
+// CMap
+function buildCm(){D.cmD=[];if(!D.font)return;const cm=D.font.tables&&D.font.tables.cmap;if(!cm)return;const seen=new Set();cm.tables.forEach(st=>{Object.keys(st.codeMap).forEach(c=>{const gi=st.codeMap[c];if(gi>0&&!seen.has(+c)){seen.add(+c);const g=D.font.glyphs.get(gi);D.cmD.push({u:+c,ch:String.fromCodePoint(+c),gn:g?g.name:'g'+gi,gi});}});});D.cmD.sort((a,b)=>a.u-b.u);}
+
+function refCm(){const q=($('cmSrch').value||'').toLowerCase();const d=D.cmD.filter(i=>{if(!q)return true;return('U+'+i.u.toString(16).toUpperCase()).toLowerCase().includes(q)||i.gn.toLowerCase().includes(q)||i.ch.includes(q);}).slice(0,500);$('cmTb').innerHTML=d.map(i=>{const h='U+'+i.u.toString(16).toUpperCase().padStart(4,'0');return`<tr><td style="font-family:monospace">${h}</td><td style="font-size:16px">${i.ch}</td><td>${i.gn}</td><td>${i.gi}</td><td><button class="btn btn-xs" onclick="cmEd(${i.u})">✏</button><button class="btn btn-xs" onclick="cmRm(${i.u})">✕</button></td></tr>`;}).join('')+(d.length>=500?`<tr><td colspan="5" style="color:var(--tx-3);text-align:center">前500条</td></tr>`:'');}
+function cmF(){refCm();}
+function cmEd(u){const i=D.cmD.find(x=>x.u===u);if(!i)return;const n=prompt(`U+${u.toString(16).toUpperCase()} → ${i.gn}\n新Glyph名:`,i.gn);if(n&&n!==i.gn){const g=D.font.glyphs.glyphs[n];if(g){D.font.tables.cmap.tables.forEach(st=>{if(st.codeMap[u]!==undefined)st.codeMap[u]=g.index;});i.gn=n;i.gi=g.index;refCm();toast('已更新');}else toast('未找到Glyph',false);}}
+function cmRm(u){if(!confirm(`删除 U+${u.toString(16).toUpperCase()}?`))return;D.font.tables.cmap.tables.forEach(st=>{delete st.codeMap[u];});D.cmD=D.cmD.filter(x=>x.u!==u);refCm();}
+function cmAdd(){const h=prompt('Unicode(hex):');if(!h)return;const u=parseInt(h,16);if(isNaN(u))return toast('无效',false);const n=prompt('Glyph名:');if(!n)return;const g=D.font.glyphs.glyphs[n];if(!g)return toast('未找到Glyph',false);D.font.tables.cmap.tables.forEach(st=>{st.codeMap[u]=g.index;});D.cmD.push({u,ch:String.fromCodePoint(u),gn:g.name,gi:g.index});D.cmD.sort((a,b)=>a.u-b.u);refCm();toast('已添加');}
+
+// Glyphs
+function refGl(){if(!D.font)return;const q=($('glSrch').value||'').toLowerCase(),f=D.font,gl=[];for(let i=0;i<f.glyphs.length&&gl.length<200;i++){const g=f.glyphs.get(i);if(g&&(g.unicode!==undefined||g.name!=='.notdef')){if(!q||(g.name&&g.name.toLowerCase().includes(q)))gl.push(g);}}
+$('glList').innerHTML=gl.map(g=>{const ch=g.unicode!==undefined?String.fromCodePoint(g.unicode):'·';const sel=D.selG===g.index?'border-color:var(--ac);background:var(--ac-bg);':'';return`<div style="display:inline-flex;flex-direction:column;align-items:center;padding:5px;border:1px solid var(--bd);border-radius:8px;cursor:pointer;min-width:58px;transition:all .15s;${sel}" onclick="selG(${g.index})" title="${g.name}"><svg viewBox="0 0 100 100" width="38" height="38" style="background:var(--bg-2);border-radius:4px"><text x="50" y="70" text-anchor="middle" font-size="56" fill="var(--tx-0)">${esc(ch)}</text></svg><div style="font-size:9px;margin-top:2px;max-width:50px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx-1)">${g.name||'g'+g.index}</div></div>`;}).join('');}
+
+function selG(idx){D.selG=idx;const g=D.font.glyphs.get(idx);if(!g)return;refGl();const ch=g.unicode!==undefined?String.fromCodePoint(g.unicode):'';const pd=g.path?g.path.toSVG(2):'';$('glDet').innerHTML=`<div style="margin-bottom:12px"><svg viewBox="0 0 1000 1000" width="200" height="200" style="background:var(--bg-2);border-radius:12px"><g transform="translate(0,800)scale(1,-1)"><path d="${pd}" fill="var(--tx-0)"/></g></svg></div><div style="font-size:14px;font-weight:600">${g.name||'g'+g.index}</div><div style="font-size:11px;color:var(--tx-2);margin-top:4px">${g.unicode!==undefined?'U+'+g.unicode.toString(16).toUpperCase().padStart(4,'0')+' ('+ch+')':'无映射'} · idx:${g.index}${g.path?' · '+g.path.commands.length+' cmds':''}</div>`;$('glMC').style.display='block';$('glAW').value=g.advanceWidth||0;$('glLSB').value=g.leftSideBearing||0;}
+
+function glSetM(k,v){const g=D.font.glyphs.get(D.selG);if(!g)return;const nv=parseFloat(v),ok=k==='aw'?'advanceWidth':'leftSideBearing',ov=g[ok];pushU({u:()=>{g[ok]=ov;},r:()=>{g[ok]=nv;}});g[ok]=nv;D.mods[`g.${D.selG}.${ok}`]=1;rebuildFF();}
+
+// Config
+function cfgSave(){if(!D.font)return toast('先加载',false);const f=D.font,c={v:'1.0',app:'TypeForge',ts:new Date().toISOString(),src:D.fname,name:{},met:{},gm:{}};Object.keys(f.names).forEach(id=>{const e=f.names[id];if(typeof e==='object'){c.name[id]={};Object.keys(e).forEach(k=>{if(typeof e[k]==='string')c.name[id][k]=e[k];});}});['hhea','vhea','os2','post'].forEach(t=>{if(f.tables[t]){c.met[t]={};Object.keys(f.tables[t]).forEach(k=>{if(typeof f.tables[t][k]==='number')c.met[t][k]=f.tables[t][k];});}});for(let i=0;i<Math.min(f.glyphs.length,65536);i++){const g=f.glyphs.get(i);if(g&&(D.mods[`g.${i}.advanceWidth`]||D.mods[`g.${i}.leftSideBearing`])){c.gm[i]={name:g.name};if(D.mods[`g.${i}.advanceWidth`])c.gm[i].aw=g.advanceWidth;if(D.mods[`g.${i}.leftSideBearing`])c.gm[i].lsb=g.leftSideBearing;}}const b=new Blob([JSON.stringify(c,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=D.fname.replace(/\.[^.]+$/,'')+'_cfg.json';a.click();toast('配置已保存');}
+
+function cfgLoad(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{D.cfg=JSON.parse(ev.target.result);cfgDf();toast('配置已加载');}catch(err){toast('解析失败',false);}};r.readAsText(f);}
+
+function cfgDf(){if(!D.font||!D.cfg){$('cfgDiff').innerHTML='请加载字体和配置';return;}const f=D.font,c=D.cfg;let h='<table class="tbl"><thead><tr><th>位置</th><th>当前</th><th>配置</th><th></th></tr></thead><tbody>';if(c.name)Object.keys(c.name).forEach(id=>{Object.keys(c.name[id]).forEach(k=>{const cv=f.names[id]?f.names[id][k]:'',sv=c.name[id][k],d=cv!==sv;h+=`<tr style="${d?'background:var(--mod)':''}"><td>n.${id}.${k}</td><td>${esc(String(cv))}</td><td>${esc(String(sv))}</td><td>${d?'🔄':'✅'}</td></tr>`;});});if(c.met)Object.keys(c.met).forEach(t=>{Object.keys(c.met[t]).forEach(k=>{const cv=f.tables[t]?f.tables[t][k]:'',sv=c.met[t][k],d=cv!==sv;h+=`<tr style="${d?'background:var(--mod)':''}"><td>${t}.${k}</td><td>${cv}</td><td>${sv}</td><td>${d?'🔄':'✅'}</td></tr>`;});});h+='</tbody></table>';$('cfgDiff').innerHTML=h;}
+
+function cfgPre(p){if(!D.font)return toast('先加载',false);const f=D.font,upm=f.unitsPerEm||1000;const ps={cjk:{n:'CJK竖排',met:{vhea:{vertTypoAscender:Math.round(upm*.88),vertTypoDescender:Math.round(-upm*.12),vertTypoLineGap:0}}},mono:{n:'等宽修正',met:{post:{isFixedPitch:1}}},web:{n:'Web优化',met:{hhea:{lineGap:0},os2:{sTypoLineGap:0}}}};const pr=ps[p];if(!pr)return;Object.keys(pr.met).forEach(t=>{if(f.tables[t])Object.keys(pr.met[t]).forEach(k=>{const v=pr.met[t][k],ov=f.tables[t][k];pushU({u:()=>{f.tables[t][k]=ov;},r:()=>{f.tables[t][k]=v;}});f.tables[t][k]=v;D.mods[`${t}.${k}`]=1;});});refM();rebuildFF();pvUpdate();toast(`已应用: ${pr.n}`);}
+
+function cfgBat(e){const files=e.target.files;if(!files.length||!D.font||!D.cfg)return toast('先加载配置',false);const c=D.cfg;let n=0;Array.from(files).forEach(file=>{const r=new FileReader();r.onload=ev=>{try{const f=opentype.parse(ev.target.result);if(c.name)Object.keys(c.name).forEach(id=>{f.names[id]=c.name[id];});if(c.met)Object.keys(c.met).forEach(t=>{if(f.tables[t])Object.keys(c.met[t]).forEach(k=>{f.tables[t][k]=c.met[t][k];});});const b=f.toArrayBuffer(),bl=new Blob([b],{type:'font/ttf'}),a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download=file.name.replace(/\.[^.]+$/,'')+'_edit.ttf';a.click();n++;$('batSt').textContent=`已处理: ${n}/${files.length}`;}catch(err){$('batSt').innerHTML+=`<div style="color:var(--err)">❌ ${file.name}</div>`;}};r.readAsArrayBuffer(file);});}
+
+// Subset
+function doSub(){if(!D.font)return toast('先加载',false);const us=new Set();for(const ch of $('subCh').value)us.add(ch.codePointAt(0));$('subRng').value.split('\n').forEach(l=>{l=l.trim();const m=l.match(/^([0-9A-Fa-f]+)(?:\s*-\s*([0-9A-Fa-f]+))?$/);if(m){const s=parseInt(m[1],16),e=m[2]?parseInt(m[2],16):s;for(let i=s;i<=e;i++)us.add(i);}});if(!us.size)return toast('请输入字符',false);const f=D.font,keep=new Set([0]);us.forEach(u=>{const gi=f.charToGlyphIndex(String.fromCodePoint(u));if(gi>0)keep.add(gi);});const gl=[];keep.forEach(i=>{const g=f.glyphs.get(i);if(g)gl.push(g);});const sf=new opentype.Font({familyName:en(f.names.fontFamily)||'Subset',styleName:en(f.names.fontSubfamily)||'Regular',unitsPerEm:f.unitsPerEm,ascender:f.ascender,descender:f.descender,glyphs:gl});const b=sf.toArrayBuffer(),bl=new Blob([b],{type:'font/ttf'}),a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download=D.fname.replace(/\.[^.]+$/,'')+'_sub.ttf';a.click();toast(`子集: ${us.size} chars, ${gl.length} glyphs`);}
+
+// TTX
+function genTTX(){if(!D.font)return toast('先加载',false);const f=D.font;let x='<?xml version="1.0" encoding="UTF-8"?>\n<ttFont>\n\n';if(f.tables.head){const h=f.tables.head;x+=`<head>\n  <unitsPerEm value="${h.unitsPerEm}"/>\n  <xMin value="${h.xMin}"/>\n  <yMin value="${h.yMin}"/>\n  <xMax value="${h.xMax}"/>\n  <yMax value="${h.yMax}"/>\n</head>\n\n`;}if(f.tables.hhea){const h=f.tables.hhea;x+=`<hhea>\n  <ascender value="${h.ascender}"/>\n  <descender value="${h.descender}"/>\n  <lineGap value="${h.lineGap}"/>\n</hhea>\n\n`;}if(f.tables.os2){const o=f.tables.os2;x+=`<OS/2>\n  <sTypoAscender value="${o.sTypoAscender}"/>\n  <sTypoDescender value="${o.sTypoDescender}"/>\n  <sTypoLineGap value="${o.sTypoLineGap}"/>\n  <usWinAscent value="${o.winAscent}"/>\n  <usWinDescent value="${o.winDescent}"/>\n</OS/2>\n\n`;}x+='<name>\n';Object.keys(f.names).forEach(id=>{const e=f.names[id];if(typeof e==='object')Object.keys(e).forEach(k=>{if(typeof e[k]==='string')x+=`  <namerecord nameID="${id}" key="${k}">${esc(e[k])}</namerecord>\n`;});});x+=`</name>\n\n<maxp numGlyphs="${f.numGlyphs}"/>\n\n</ttFont>`;$('ttxOut').innerHTML=`<pre style="font-size:11px;color:var(--tx-0);white-space:pre-wrap;font-family:'SF Mono',monospace">${esc(x)}</pre>`;}
+
+// Refresh
+function refresh(){if(!D.font)return;updInfo();pvUpdate();refN();refM();refCm();refGl();if(D.cfg)cfgDf();}
+
+// Keys
+document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='z'){e.preventDefault();undo();}if(e.ctrlKey&&e.key==='y'){e.preventDefault();redo();}});
+
+updUR();
+</script>
+</body>
+</html>

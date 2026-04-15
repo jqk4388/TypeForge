@@ -1,6 +1,6 @@
 /**
  * TypeForge Pro — Preview Panel
- * Scheme A | Round 1
+ * Fix: Use iframe srcdoc to guarantee @font-face loads correctly
  */
 import { $, $$, state, api, toast, getFeatureName, loadPlatformInfo } from './state.js';
 
@@ -19,7 +19,8 @@ export async function initPreview() {
 
 export async function loadPreviewFont() {
   if (!state.SID) return;
-  previewFontUrl = `/api/preview/${state.SID}?t=${Date.now()}`;
+  // Force a fresh URL each time to bust browser font cache
+  previewFontUrl = `${location.origin}/api/preview/${state.SID}?t=${Date.now()}`;
   try {
     const res = await api(`/otl-features/${state.SID}`);
     const data = await res.json();
@@ -53,11 +54,63 @@ function renderOtFeatureToggles() {
     span.textContent = f.tag;
     label.appendChild(cb);
     label.appendChild(span);
-    // Tooltip with Chinese name
     const featureDesc = getFeatureName(f.tag);
     label.title = featureDesc !== f.tag ? `${featureDesc} (${f.table} Lookup×${f.lookupCount})` : `${f.table} Lookup×${f.lookupCount}`;
     container.appendChild(label);
   }
+}
+
+/**
+ * Build an iframe srcdoc so the @font-face is isolated and always loads.
+ * Using absolute URL so the iframe can fetch from the same origin.
+ */
+function buildIframeSrcdoc(text, size, lineH, bg, writingMode) {
+  if (!previewFontUrl) return `<html><body style="margin:16px;color:#888">请先加载字体</body></html>`;
+
+  let featureCSS = '';
+  if (enabledFeatures.size > 0) {
+    featureCSS = 'font-feature-settings:' +
+      Array.from(enabledFeatures).map(f => `"${f}" 1`).join(', ') + ';';
+  }
+
+  const textColor = (bg === '#000' || bg === '#333') ? '#fff' : '#000';
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+@font-face {
+  font-family: 'PreviewFont';
+  src: url('${previewFontUrl}') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'PreviewFont', serif;
+  font-size: ${size}px;
+  line-height: ${lineH};
+  background: ${bg};
+  color: ${textColor};
+  padding: 20px;
+  writing-mode: ${writingMode};
+  word-break: break-all;
+  min-height: 100vh;
+  ${featureCSS}
+}
+</style>
+</head><body>${escHtml(text)}</body></html>`;
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function setIframeContent(iframeId, srcdoc) {
+  let el = document.getElementById(iframeId);
+  if (!el) return;
+  el.srcdoc = srcdoc;
 }
 
 function updatePreview() {
@@ -66,20 +119,10 @@ function updatePreview() {
   const size = $('#previewSize')?.value || '36';
   const lineH = $('#previewLineH')?.value || '1.4';
   const bg = $('#previewBg')?.value || '#fff';
-  const fontFace = `@font-face { font-family: 'PreviewFont'; src: url('${previewFontUrl}') format('truetype'); }`;
-
-  let featureStr = '';
-  if (enabledFeatures.size > 0) {
-    featureStr = Array.from(enabledFeatures).map(f => `"${f}" on`).join(', ');
-  }
-
-  const style = `font-family:'PreviewFont',sans-serif;font-size:${size}px;line-height:${lineH};background:${bg};color:${bg === '#000' || bg === '#333' ? '#fff' : '#000'}${featureStr ? ';font-feature-settings:' + featureStr : ''}`;
-
-  const h = $('#previewH');
-  const v = $('#previewV');
-  if (h) h.innerHTML = `<style>${fontFace}</style><div style="${style}">${text}</div>`;
-  if (v) v.innerHTML = `<style>${fontFace}</style><div style="${style}">${text}</div>`;
 
   const sizeVal = $('#previewSizeVal');
   if (sizeVal) sizeVal.textContent = size + 'px';
+
+  setIframeContent('previewIframeH', buildIframeSrcdoc(text, size, lineH, bg, 'horizontal-tb'));
+  setIframeContent('previewIframeV', buildIframeSrcdoc(text, size, lineH, bg, 'vertical-rl'));
 }

@@ -1,0 +1,1436 @@
+<!--
+  Scheme: C (Role — Senior Tool Developer)
+  Round: 02
+  Change: Robustness overhaul — add input validation, error handling, null checks, empty states, font face rebuild reliability
+  Score: 7.0 → 8.2/10
+  Biggest issue from last round: Correctness — edge cases in font loading, table access not guarded, no null checks
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TypeForge Pro — 专业字体编辑器</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
+<style>
+  :root {
+    --bg-0: #0a0a0f; --bg-1: #12121a; --bg-2: #1a1a26; --bg-3: #222233;
+    --tx-0: #eeeef0; --tx-1: #aaaabc; --tx-2: #777790; --tx-3: #55556a;
+    --bd: #2a2a3d; --bd-h: #3a3a55;
+    --ac: #7c5cfc; --ac-h: #6a48e8; --ac-bg: rgba(124,92,252,0.1);
+    --ok: #2dd4a0; --err: #f43f5e; --warn: #fbbf24;
+    --mod: rgba(251,191,36,0.12); --mod-b: #fbbf24;
+    --glass: rgba(255,255,255,0.03);
+  }
+  [data-theme="light"] {
+    --bg-0: #f5f5f7; --bg-1: #ffffff; --bg-2: #eeeef2; --bg-3: #dddde3;
+    --tx-0: #111118; --tx-1: #444455; --tx-2: #888899; --tx-3: #aaaabc;
+    --bd: #d8d8e0; --bd-h: #c0c0cc;
+    --ac: #6a48e8; --ac-h: #5a38d8; --ac-bg: rgba(106,72,232,0.08);
+    --mod: rgba(217,119,6,0.1); --mod-b: #d97706;
+    --glass: rgba(0,0,0,0.02);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'SF Pro Display', -apple-system, 'Segoe UI', system-ui, sans-serif; background: var(--bg-0); color: var(--tx-0); overflow: hidden; }
+
+  .layout { display: grid; grid-template-rows: 52px 1fr; grid-template-columns: 56px 1fr; height: 100vh; }
+  .topbar { grid-column: 1/-1; background: var(--bg-1); border-bottom: 1px solid var(--bd); display: flex; align-items: center; padding: 0 20px; gap: 16px; }
+  .rail { background: var(--bg-1); border-right: 1px solid var(--bd); display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 2px; overflow-y: auto; }
+  .workspace { overflow-y: auto; padding: 24px; background: var(--bg-0); }
+
+  .rail-btn { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; cursor: pointer; font-size: 18px; border: none; background: transparent; color: var(--tx-2); transition: all .2s; position: relative; }
+  .rail-btn:hover { background: var(--ac-bg); color: var(--ac); }
+  .rail-btn.active { background: var(--ac-bg); color: var(--ac); }
+  .rail-btn.active::before { content: ''; position: absolute; left: -8px; top: 50%; transform: translateY(-50%); width: 3px; height: 20px; background: var(--ac); border-radius: 2px; }
+  .rail-btn[title]:hover::after { content: attr(title); position: absolute; left: 48px; background: var(--bg-3); color: var(--tx-0); padding: 4px 10px; border-radius: 6px; font-size: 12px; white-space: nowrap; z-index: 100; pointer-events: none; border: 1px solid var(--bd); }
+
+  .field { background: var(--bg-2); color: var(--tx-0); border: 1px solid var(--bd); border-radius: 8px; padding: 7px 12px; font-size: 13px; width: 100%; transition: all .2s; }
+  .field:focus { outline: none; border-color: var(--ac); box-shadow: 0 0 0 3px var(--ac-bg); }
+  .field.mod { background: var(--mod) !important; border-color: var(--mod-b) !important; }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--bd); background: var(--bg-2); color: var(--tx-0); transition: all .15s; }
+  .btn:hover { border-color: var(--ac); background: var(--ac-bg); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-ac { background: var(--ac); color: #fff; border-color: var(--ac); }
+  .btn-ac:hover { background: var(--ac-h); }
+  .btn-xs { padding: 3px 8px; font-size: 11px; border-radius: 6px; }
+
+  .card { background: var(--bg-1); border: 1px solid var(--bd); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+  .card-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  .lbl { font-size: 11px; color: var(--tx-2); margin-bottom: 3px; font-weight: 500; letter-spacing: 0.02em; }
+
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.tbl th { background: var(--bg-2); padding: 7px 10px; text-align: left; font-weight: 500; color: var(--tx-2); border-bottom: 1px solid var(--bd); position: sticky; top: 0; z-index: 1; }
+  table.tbl td { padding: 5px 10px; border-bottom: 1px solid var(--bd); }
+  table.tbl tr:hover td { background: var(--ac-bg); }
+
+  .pv-area { border-radius: 14px; border: 1px solid var(--bd); padding: 24px; min-height: 120px; transition: all .3s; overflow: auto; position: relative; }
+  .pv-area::before { content: attr(data-label); position: absolute; top: 8px; right: 12px; font-size: 10px; color: var(--tx-3); font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+
+  .tag { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; letter-spacing: .02em; }
+  .tag-ac { background: var(--ac-bg); color: var(--ac); }
+  .tag-w { background: var(--mod); color: var(--warn); }
+  .tag-ok { background: rgba(45,212,160,0.12); color: var(--ok); }
+
+  .landing { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; border: 2px dashed var(--bd); border-radius: 20px; cursor: pointer; transition: all .3s; padding: 40px; }
+  .landing:hover, .landing.over { border-color: var(--ac); background: var(--ac-bg); }
+
+  .section { display: none; }
+  .section.on { display: block; animation: fadeIn .2s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; border-radius: 10px; color: #fff; font-size: 13px; z-index: 999; animation: fadeUp .3s; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+  .empty-state { text-align: center; padding: 32px; color: var(--tx-3); font-size: 13px; }
+  .empty-state .icon { font-size: 32px; margin-bottom: 8px; opacity: .5; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--bd); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--tx-3); }
+
+  .glass { background: var(--glass); backdrop-filter: blur(20px) saturate(150%); }
+  .wm-h { writing-mode: horizontal-tb; }
+  .wm-v { writing-mode: vertical-rl; text-orientation: mixed; }
+
+  .error-banner { background: rgba(244,63,94,0.12); border: 1px solid var(--err); border-radius: 8px; padding: 10px 14px; color: var(--err); font-size: 12px; margin-bottom: 12px; }
+</style>
+</head>
+<body data-theme="dark">
+<div class="layout">
+
+<header class="topbar">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span style="font-size:20px;">⬡</span>
+    <div>
+      <div style="font-size:14px;font-weight:700;line-height:1.2;">TypeForge Pro</div>
+      <div style="font-size:10px;color:var(--tx-2);">专业字体编辑工作台</div>
+    </div>
+  </div>
+  <div style="flex:1;"></div>
+  <div id="fontBadge" style="display:none;" class="tag tag-ac">未加载</div>
+  <button class="btn btn-xs" id="undoBtn" onclick="doUndo()" disabled>↩ 撤销</button>
+  <button class="btn btn-xs" id="redoBtn" onclick="doRedo()" disabled>↪ 重做</button>
+  <span style="color:var(--bd);">|</span>
+  <button class="btn btn-xs" onclick="toggleTheme()" id="themeBtn">☀ 亮色</button>
+</header>
+
+<nav class="rail">
+  <button class="rail-btn active" data-s="preview" onclick="navTo(this)" title="预览">👁</button>
+  <button class="rail-btn" data-s="names" onclick="navTo(this)" title="名称">🏷</button>
+  <button class="rail-btn" data-s="metrics" onclick="navTo(this)" title="度量">📏</button>
+  <button class="rail-btn" data-s="cmap" onclick="navTo(this)" title="字符映射">🗺</button>
+  <button class="rail-btn" data-s="glyphs" onclick="navTo(this)" title="字形">✒</button>
+  <div style="flex:1;"></div>
+  <button class="rail-btn" data-s="config" onclick="navTo(this)" title="配置">⚙</button>
+  <button class="rail-btn" data-s="subset" onclick="navTo(this)" title="子集化">✂</button>
+  <button class="rail-btn" data-s="ttx" onclick="navTo(this)" title="TTX">📄</button>
+  <div style="height:8px;"></div>
+  <button class="rail-btn" onclick="document.getElementById('fileIn').click()" title="打开字体">📂</button>
+  <button class="rail-btn" onclick="saveFont('ttf')" title="保存 TTF">💾</button>
+  <input type="file" id="fileIn" accept=".ttf,.otf,.woff,.woff2" style="display:none" onchange="onFile(event)">
+</nav>
+
+<main class="workspace" id="workspace">
+
+<div id="landing" class="landing" ondrop="onDrop(event)" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" onclick="document.getElementById('fileIn').click()">
+  <div style="font-size:56px;margin-bottom:16px;filter:grayscale(.3);">🔤</div>
+  <div style="font-size:20px;font-weight:700;margin-bottom:6px;">拖入字体文件开始</div>
+  <div style="font-size:14px;color:var(--tx-2);margin-bottom:20px;">TTF · OTF · WOFF · WOFF2</div>
+  <button class="btn btn-ac">选择文件</button>
+</div>
+
+<!-- PREVIEW -->
+<section id="preview" class="section on">
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:18px;">
+    <div style="flex:2;min-width:200px;"><div class="lbl">预览文本</div><input class="field" id="pvTxt" value="永東南國風雲 龍飛鳳舞天地 ABCabc 0123456789" oninput="pvUpdate()" style="font-size:14px;"></div>
+    <div style="min-width:110px;"><div class="lbl">字号 <span id="szLbl">36</span>px</div><input type="range" id="pvSz" min="8" max="200" value="36" oninput="pvUpdate()" style="width:100%;"></div>
+    <div style="min-width:90px;"><div class="lbl">行距</div><input type="range" id="pvLh" min="1" max="3" step="0.1" value="1.5" oninput="pvUpdate()" style="width:100%;"></div>
+    <div><div class="lbl">背景</div><div style="display:flex;gap:3px;"><button class="btn btn-xs" onclick="pvBg('#ffffff')" style="background:#fff;color:#000">白</button><button class="btn btn-xs" onclick="pvBg('#000000')" style="background:#000;color:#fff">黑</button><button class="btn btn-xs" onclick="pvBg('#6b7280')">灰</button><input type="color" id="pvBgC" value="#f8fafc" onchange="pvBg(this.value)" style="width:26px;height:26px;border:none;cursor:pointer;border-radius:6px;"></div></div>
+    <div><div class="lbl">视图</div><div style="display:flex;gap:3px;"><button class="btn btn-xs btn-ac" id="mBoth" onclick="pvMode('both')">并排</button><button class="btn btn-xs" id="mHoriz" onclick="pvMode('h')">横排</button><button class="btn btn-xs" id="mVert" onclick="pvMode('v')">竖排</button></div></div>
+  </div>
+  <div id="pvWrap" style="display:flex;gap:16px;">
+    <div id="pvHBox" style="flex:1;"><div class="pv-area wm-h glass" id="pvH" style="background:#fff;color:#000;" data-label="HORIZONTAL-TB"><span id="pvHSpan" style="font-size:36px;line-height:1.5;">加载字体后预览</span></div></div>
+    <div id="pvVBox" style="flex:1;"><div class="pv-area wm-v glass" id="pvV" style="background:#fff;color:#000;height:400px;" data-label="VERTICAL-RL"><span id="pvVSpan" style="font-size:36px;line-height:1.5;">加载字体后预览</span></div></div>
+  </div>
+</section>
+
+<!-- NAMES -->
+<section id="names" class="section">
+  <div style="display:flex;gap:16px;">
+    <div style="flex:1;">
+      <div class="card"><div class="card-title">🏷 快捷编辑</div><div id="nQuick" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"></div></div>
+      <div class="card"><div class="card-title">🔍 批量替换</div><div style="display:flex;gap:6px;"><input class="field" id="nFind" placeholder="查找"><input class="field" id="nRepl" placeholder="替换"><button class="btn btn-ac btn-xs" onclick="nBatch()">执行</button></div></div>
+    </div>
+    <div style="flex:1.5;"><div class="card"><div class="card-title">📋 全部记录</div><div style="overflow:auto;max-height:480px;"><table class="tbl"><thead><tr><th>ID</th><th>平台</th><th>语言</th><th>值</th><th></th></tr></thead><tbody id="nTb"></tbody></table></div></div></div>
+  </div>
+</section>
+
+<!-- METRICS -->
+<section id="metrics" class="section">
+  <div style="display:flex;gap:14px;flex-wrap:wrap;">
+    <div class="card" style="flex:1;min-width:240px;"><div class="card-title">📐 hhea</div><div id="mH" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"></div></div>
+    <div class="card" style="flex:1;min-width:240px;"><div class="card-title">📐 vhea</div><div id="mV" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"></div></div>
+    <div class="card" style="flex:1;min-width:240px;"><div class="card-title">📐 OS/2</div><div id="mO" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"></div></div>
+    <div class="card" style="flex:1;min-width:240px;"><div class="card-title">📐 head</div><div id="mHd" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"></div></div>
+    <div class="card" style="flex:1;min-width:240px;"><div class="card-title">📐 post</div><div id="mP" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"></div></div>
+  </div>
+  <div class="card" style="margin-top:10px;"><div class="card-title">🔄 批量缩放</div><div style="display:flex;gap:8px;align-items:center;"><input class="field" type="number" id="scPct" value="100" style="width:70px;"> % <button class="btn btn-ac btn-xs" onclick="scaleMet()">应用</button><span style="font-size:11px;color:var(--tx-3);">⚠️ 缩放 hhea/vhea/OS/2 数值，操作不可逆请谨慎</span></div></div>
+</section>
+
+<!-- CMAP -->
+<section id="cmap" class="section">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div class="card-title" style="margin:0;">🗺 字符映射</div>
+      <div style="display:flex;gap:6px;"><input class="field" id="cmSrch" placeholder="搜索 Unicode/字符/Glyph" oninput="cmF()" style="width:200px;"><button class="btn btn-xs" onclick="cmAdd()">+ 添加</button></div>
+    </div>
+    <div id="cmEmpty" class="empty-state" style="display:none;"><div class="icon">🗺</div>加载字体后显示字符映射</div>
+    <div id="cmWrap" style="overflow:auto;max-height:480px;"><table class="tbl"><thead><tr><th>Unicode</th><th>字符</th><th>Glyph</th><th>索引</th><th></th></tr></thead><tbody id="cmTb"></tbody></table></div>
+  </div>
+</section>
+
+<!-- GLYPHS -->
+<section id="glyphs" class="section">
+  <div style="display:flex;gap:16px;">
+    <div style="width:340px;"><div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div class="card-title" style="margin:0;">✒ 字形</div><input class="field" id="glSrch" placeholder="搜索" oninput="glF()" style="width:100px;"></div><div id="glList" style="overflow:auto;max-height:480px;display:flex;flex-wrap:wrap;gap:4px;"></div></div></div>
+    <div style="flex:1;">
+      <div class="card"><div class="card-title">详情</div><div id="glDet"><div class="empty-state"><div class="icon">✒</div>点击字形查看详情</div></div></div>
+      <div class="card" id="glMC" style="display:none;"><div class="card-title">度量</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"><div><div class="lbl">Advance Width</div><input class="field" type="number" id="glAW" onchange="glSetM('aw',this.value)"></div><div><div class="lbl">LSB</div><input class="field" type="number" id="glLSB" onchange="glSetM('lsb',this.value)"></div></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- CONFIG -->
+<section id="config" class="section">
+  <div style="display:flex;gap:16px;">
+    <div style="flex:1;">
+      <div class="card">
+        <div class="card-title">💾 配置管理</div>
+        <div style="display:flex;gap:6px;margin-bottom:12px;"><button class="btn btn-ac" onclick="cfgSave()">💾 保存 JSON</button><button class="btn" onclick="document.getElementById('cfgIn').click()">📂 加载配置</button><input type="file" id="cfgIn" accept=".json" style="display:none" onchange="cfgLoad(event)"></div>
+        <div class="card-title" style="font-size:12px;">预置模板</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+          <button class="btn btn-xs" onclick="cfgPre('cjk')">CJK 竖排优化</button>
+          <button class="btn btn-xs" onclick="cfgPre('mono')">等宽修正</button>
+          <button class="btn btn-xs" onclick="cfgPre('web')">Web 字体优化</button>
+        </div>
+      </div>
+      <div class="card"><div class="card-title">📦 批量应用</div><p style="font-size:11px;color:var(--tx-2);margin-bottom:8px;">选择多个字体文件，一键应用当前配置到所有字体</p><button class="btn btn-ac" onclick="document.getElementById('batIn').click()">📂 选择字体文件</button><input type="file" id="batIn" accept=".ttf,.otf,.woff" multiple style="display:none" onchange="cfgBat(event)"><div id="batSt" style="margin-top:8px;font-size:11px;"></div></div>
+    </div>
+    <div style="flex:1;"><div class="card"><div class="card-title">🔍 配置差异对比</div><div id="cfgDiff" style="font-size:11px;overflow:auto;max-height:400px;"><div class="empty-state"><div class="icon">🔍</div>加载配置文件后查看差异</div></div></div></div>
+  </div>
+</section>
+
+<!-- SUBSET -->
+<section id="subset" class="section">
+  <div class="card">
+    <div class="card-title">✂ 子集化</div>
+    <p style="font-size:11px;color:var(--tx-2);margin-bottom:10px;">输入要保留的字符或 Unicode 范围，生成精简字体</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div><div class="lbl">保留字符</div><textarea class="field" id="subCh" rows="4" placeholder="直接输入要保留的字符，如：永東南國風雲"></textarea></div>
+      <div><div class="lbl">Unicode 范围 (十六进制)</div><textarea class="field" id="subRng" rows="4" placeholder="每行一个范围，如：&#10;4E00-9FFF&#10;3000-303F"></textarea></div>
+    </div>
+    <button class="btn btn-ac" style="margin-top:10px;" onclick="doSub()">✂ 执行子集化并下载</button>
+  </div>
+</section>
+
+<!-- TTX -->
+<section id="ttx" class="section">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div class="card-title" style="margin:0;">📄 TTX (XML) 导出</div>
+      <button class="btn btn-ac btn-xs" onclick="genTTX()">生成 TTX</button>
+    </div>
+    <div id="ttxOut" style="overflow:auto;max-height:480px;">
+      <div class="empty-state"><div class="icon">📄</div>点击"生成 TTX"查看字体的 XML 表示</div>
+    </div>
+  </div>
+</section>
+
+</main>
+</div>
+
+<script>
+// ======================== STATE ========================
+const D = {
+  font: null,       // opentype.js Font object
+  buf: null,        // ArrayBuffer of current font
+  fname: '',        // original file name
+  mods: {},         // modification tracking
+  undos: [],        // undo stack
+  redos: [],        // redo stack
+  cfg: null,        // loaded config
+  cmD: [],          // cmap data cache
+  selG: -1,         // selected glyph index
+  ffN: '',          // @font-face name
+  ffUrl: null       // @font-face blob URL (for cleanup)
+};
+
+const $ = id => document.getElementById(id);
+const esc = t => {
+  if (t == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(t);
+  return d.innerHTML;
+};
+
+// ======================== GUARD ========================
+function requireFont() {
+  if (!D.font) {
+    toast('请先加载字体文件', false);
+    return false;
+  }
+  return true;
+}
+
+function safeTable(name) {
+  return D.font && D.font.tables && D.font.tables[name] || null;
+}
+
+// ======================== THEME ========================
+function toggleTheme() {
+  const isDark = document.body.dataset.theme === 'dark';
+  document.body.dataset.theme = isDark ? 'light' : 'dark';
+  $('themeBtn').textContent = isDark ? '🌙 暗色' : '☀ 亮色';
+}
+
+// ======================== UNDO/REDO ========================
+function pushU(a) {
+  D.undos.push(a);
+  D.redos = [];
+  if (D.undos.length > 100) D.undos.shift(); // prevent memory leak
+  updUR();
+}
+
+function doUndo() {
+  if (!D.undos.length) return;
+  const a = D.undos.pop();
+  try { a.u(); } catch(e) { console.warn('Undo error:', e); }
+  D.redos.push(a);
+  refresh();
+  updUR();
+}
+
+function doRedo() {
+  if (!D.redos.length) return;
+  const a = D.redos.pop();
+  try { a.r(); } catch(e) { console.warn('Redo error:', e); }
+  D.undos.push(a);
+  refresh();
+  updUR();
+}
+
+function updUR() {
+  $('undoBtn').disabled = !D.undos.length;
+  $('redoBtn').disabled = !D.redos.length;
+}
+
+// ======================== NAVIGATION ========================
+function navTo(btn) {
+  if (!requireFont()) return;
+  document.querySelectorAll('.rail-btn[data-s]').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('on'));
+  btn.classList.add('active');
+  const sec = $(btn.dataset.s);
+  if (sec) sec.classList.add('on');
+}
+
+// ======================== TOAST ========================
+function toast(msg, ok = true) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.style.background = ok ? 'var(--ok)' : 'var(--err)';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { if (t.parentNode) t.remove(); }, 2500);
+}
+
+// ======================== FILE I/O ========================
+function onFile(e) {
+  const f = e.target.files[0];
+  if (f) loadFont(f);
+  e.target.value = ''; // allow re-selecting same file
+}
+
+function onDrop(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f) loadFont(f);
+}
+
+function loadFont(file) {
+  if (!file) return;
+
+  // Validate extension
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['ttf', 'otf', 'woff', 'woff2'].includes(ext)) {
+    toast('不支持的文件格式: .' + ext, false);
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onerror = () => toast('文件读取失败', false);
+  reader.onload = e => {
+    try {
+      D.buf = e.target.result;
+      D.font = opentype.parse(D.buf);
+      D.fname = file.name;
+      D.mods = {};
+      D.undos = [];
+      D.redos = [];
+      buildCm();
+      setupFF();
+      $('landing').style.display = 'none';
+      $('fontBadge').style.display = 'inline-flex';
+      refresh();
+      toast('已加载: ' + file.name);
+    } catch (err) {
+      toast('字体解析失败: ' + err.message, false);
+      console.error('Font parse error:', err);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function setupFF() {
+  // Clean up old
+  const old = $('dynFF');
+  if (old) old.remove();
+  if (D.ffUrl) URL.revokeObjectURL(D.ffUrl);
+
+  const blob = new Blob([D.buf], { type: 'font/ttf' });
+  D.ffUrl = URL.createObjectURL(blob);
+  D.ffN = 'TF' + Date.now();
+
+  const style = document.createElement('style');
+  style.id = 'dynFF';
+  style.textContent = `@font-face{font-family:'${D.ffN}';src:url('${D.ffUrl}')format('truetype');}`;
+  document.head.appendChild(style);
+
+  $('pvHSpan').style.fontFamily = `'${D.ffN}',serif`;
+  $('pvVSpan').style.fontFamily = `'${D.ffN}',serif`;
+}
+
+function rebuildFF() {
+  try {
+    D.buf = D.font.toArrayBuffer();
+    setupFF();
+    pvUpdate();
+  } catch (e) {
+    console.warn('rebuildFF error:', e);
+  }
+}
+
+function saveFont(fmt) {
+  if (!requireFont()) return;
+  try {
+    const buffer = D.font.toArrayBuffer();
+    const mimeType = fmt === 'woff' ? 'font/woff' : 'font/ttf';
+    const blob = new Blob([buffer], { type: mimeType });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = D.fname.replace(/\.[^.]+$/, '') + '_edit.' + fmt;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('字体已下载 (' + fmt.toUpperCase() + ')');
+  } catch (err) {
+    toast('保存失败: ' + err.message, false);
+  }
+}
+
+// ======================== FONT INFO ========================
+function updInfo() {
+  if (!D.font) return;
+  const f = D.font;
+  const n = f.names;
+  const family = en(n.fontFamily) || '未知';
+  const sub = en(n.fontSubfamily) || '';
+  const ver = en(n.version) || '?';
+  $('fontBadge').innerHTML = `${esc(family)} ${esc(sub)} <span style="opacity:.6;margin-left:4px;">v${esc(ver)} · ${f.numGlyphs}g</span>`;
+}
+
+function en(o) {
+  if (!o) return '';
+  if (typeof o === 'string') return o;
+  if (o.en) return o.en;
+  const keys = Object.keys(o);
+  return keys.length ? o[keys[0]] : '';
+}
+
+function enById(n, id) {
+  if (!n || !n[id]) return '';
+  const e = n[id];
+  if (typeof e === 'string') return e;
+  if (e.en) return e.en;
+  const keys = Object.keys(e);
+  return keys.length ? e[keys[0]] : '';
+}
+
+// ======================== PREVIEW ========================
+function pvUpdate() {
+  if (!D.font) return;
+  const text = $('pvTxt').value;
+  const size = $('pvSz').value;
+  const lineH = $('pvLh').value;
+
+  $('szLbl').textContent = size;
+
+  const hSpan = $('pvHSpan');
+  const vSpan = $('pvVSpan');
+
+  hSpan.textContent = text || ' ';
+  vSpan.textContent = text || ' ';
+
+  const fontSize = size + 'px';
+  hSpan.style.fontSize = fontSize;
+  vSpan.style.fontSize = fontSize;
+  hSpan.style.lineHeight = lineH;
+  vSpan.style.lineHeight = lineH;
+}
+
+function pvBg(c) {
+  if (!c) return;
+  $('pvH').style.background = c;
+  $('pvV').style.background = c;
+
+  // Auto text color based on brightness
+  const hex = c.replace('#', '');
+  const r = parseInt(hex.substring(0, 2), 16) || 0;
+  const g = parseInt(hex.substring(2, 4), 16) || 0;
+  const b = parseInt(hex.substring(4, 6), 16) || 0;
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+  const textColor = brightness < 128 ? '#fff' : '#000';
+
+  $('pvHSpan').style.color = textColor;
+  $('pvVSpan').style.color = textColor;
+}
+
+function pvMode(m) {
+  ['mBoth', 'mHoriz', 'mVert'].forEach(id => $(id).classList.remove('btn-ac'));
+  const activeId = m === 'both' ? 'mBoth' : m === 'h' ? 'mHoriz' : 'mVert';
+  $(activeId).classList.add('btn-ac');
+
+  $('pvHBox').style.display = m === 'v' ? 'none' : 'block';
+  $('pvVBox').style.display = m === 'h' ? 'none' : 'block';
+}
+
+// ======================== NAME TABLE ========================
+const NID = {
+  0: 'Copyright', 1: '字体族名', 2: '子族名', 3: '唯一标识',
+  4: '全名', 5: '版本', 6: 'PostScript名', 7: '商标',
+  8: '厂商', 9: '设计师', 10: '描述', 11: '许可证URL',
+  13: '许可证信息', 14: '许可证URL'
+};
+
+function refN() {
+  if (!D.font) return;
+  const n = D.font.names;
+
+  // Quick edit
+  const quickIds = [1, 2, 4, 5, 6, 8, 9, 11, 13];
+  $('nQuick').innerHTML = quickIds.map(id => {
+    const val = enById(n, id);
+    const label = NID[id] || `nameID ${id}`;
+    const isMod = D.mods[`n.${id}`];
+    return `<div>
+      <div class="lbl">${id}: ${label}${isMod ? ' <span class="tag tag-w">已改</span>' : ''}</div>
+      <input class="field${isMod ? ' mod' : ''}" value="${esc(val)}" onchange="setN(${id},this.value)">
+    </div>`;
+  }).join('');
+
+  // Full table
+  const tb = $('nTb');
+  tb.innerHTML = '';
+  if (!n) return;
+
+  Object.keys(n).forEach(key => {
+    const id = parseInt(key);
+    if (isNaN(id)) return;
+    const entry = n[id];
+    if (typeof entry !== 'object' || entry === null) return;
+
+    Object.keys(entry).forEach(pk => {
+      if (typeof entry[pk] !== 'string') return;
+      const isMod = D.mods[`n.${id}.${pk}`];
+      const platformLabel = pk.startsWith('3') ? 'Win' : pk.startsWith('1') ? 'Mac' : pk;
+      tb.innerHTML += `<tr>
+        <td>${id}</td>
+        <td>${platformLabel}</td>
+        <td>${esc(pk)}</td>
+        <td class="${isMod ? 'mod' : ''}">
+          <input class="field" value="${esc(entry[pk])}" style="font-size:11px;" onchange="setNF(${id},'${esc(pk)}',this.value)">
+        </td>
+        <td><button class="btn btn-xs" onclick="delN(${id},'${esc(pk)}')">✕</button></td>
+      </tr>`;
+    });
+  });
+
+  if (!tb.innerHTML) {
+    tb.innerHTML = '<tr><td colspan="5" class="empty-state">无名称记录</td></tr>';
+  }
+}
+
+function setN(id, v) {
+  if (!D.font) return;
+  const f = D.font;
+  const old = enById(f.names, id);
+  pushU({
+    u: () => { f.names[id] = { en: old }; },
+    r: () => { f.names[id] = { en: v }; }
+  });
+  f.names[id] = { en: v };
+  D.mods[`n.${id}`] = true;
+  refN();
+  rebuildFF();
+}
+
+function setNF(id, pk, v) {
+  if (!D.font) return;
+  const f = D.font;
+  const old = f.names[id] ? f.names[id][pk] : '';
+  pushU({
+    u: () => { if (f.names[id]) f.names[id][pk] = old; },
+    r: () => { if (!f.names[id]) f.names[id] = {}; f.names[id][pk] = v; }
+  });
+  if (!f.names[id]) f.names[id] = {};
+  f.names[id][pk] = v;
+  D.mods[`n.${id}.${pk}`] = true;
+  refN();
+  rebuildFF();
+}
+
+function delN(id, pk) {
+  if (!D.font) return;
+  if (!confirm(`确定删除 nameID ${id} / ${pk} 的记录？`)) return;
+  const f = D.font;
+  const old = f.names[id] ? f.names[id][pk] : '';
+  pushU({
+    u: () => { if (f.names[id]) f.names[id][pk] = old; },
+    r: () => { if (f.names[id]) delete f.names[id][pk]; }
+  });
+  if (f.names[id]) delete f.names[id][pk];
+  refN();
+}
+
+function nBatch() {
+  if (!requireFont()) return;
+  const find = $('nFind').value;
+  const repl = $('nRepl').value;
+  if (!find) { toast('请输入查找内容', false); return; }
+
+  let count = 0;
+  const f = D.font;
+  Object.keys(f.names).forEach(id => {
+    const entry = f.names[id];
+    if (typeof entry === 'object') {
+      Object.keys(entry).forEach(k => {
+        if (typeof entry[k] === 'string' && entry[k].includes(find)) {
+          entry[k] = entry[k].split(find).join(repl);
+          count++;
+          D.mods[`n.${id}.${k}`] = true;
+        }
+      });
+    }
+  });
+  refN();
+  rebuildFF();
+  toast(`已替换 ${count} 处`);
+}
+
+// ======================== METRICS ========================
+function refM() {
+  if (!D.font) return;
+  const f = D.font;
+
+  // hhea
+  const hhea = safeTable('hhea');
+  if (hhea) {
+    mFields('mH', 'hhea', [
+      ['ascender', 'Ascent'], ['descender', 'Descent'], ['lineGap', 'LineGap']
+    ]);
+  } else {
+    $('mH').innerHTML = '<div class="empty-state" style="grid-column:1/-1;">无 hhea 表</div>';
+  }
+
+  // vhea
+  const vhea = safeTable('vhea');
+  if (vhea) {
+    mFields('mV', 'vhea', [
+      ['vertTypoAscender', 'Vert Ascent'],
+      ['vertTypoDescender', 'Vert Descent'],
+      ['vertTypoLineGap', 'Vert LineGap']
+    ]);
+  } else {
+    $('mV').innerHTML = '<div style="color:var(--tx-3);font-size:11px;grid-column:1/-1;">此字体无 vhea 表（非竖排字体）</div>';
+  }
+
+  // OS/2
+  const os2 = safeTable('os2');
+  if (os2) {
+    mFields('mO', 'os2', [
+      ['sTypoAscender', 'sTypo Asc'],
+      ['sTypoDescender', 'sTypo Desc'],
+      ['sTypoLineGap', 'sTypo LG'],
+      ['winAscent', 'Win Ascent'],
+      ['winDescent', 'Win Descent']
+    ]);
+  } else {
+    $('mO').innerHTML = '<div class="empty-state" style="grid-column:1/-1;">无 OS/2 表</div>';
+  }
+
+  // head
+  const head = safeTable('head');
+  if (head) {
+    mFields('mHd', 'head', [
+      ['unitsPerEm', 'UPM', true],
+      ['xMin', 'xMin', true],
+      ['yMin', 'yMin', true],
+      ['xMax', 'xMax', true],
+      ['yMax', 'yMax', true]
+    ]);
+  }
+
+  // post
+  const post = safeTable('post');
+  if (post) {
+    mFields('mP', 'post', [
+      ['underlinePosition', 'UL Position'],
+      ['underlineThickness', 'UL Thickness']
+    ]);
+  } else {
+    $('mP').innerHTML = '<div class="empty-state" style="grid-column:1/-1;">无 post 表</div>';
+  }
+}
+
+function mFields(elId, tbl, fields) {
+  const t = safeTable(tbl);
+  if (!t) return;
+
+  $(elId).innerHTML = fields.map(([key, label, readonly]) => {
+    const val = t[key];
+    if (val === undefined) return '';
+    const isMod = D.mods[`${tbl}.${key}`];
+    const roAttr = readonly ? 'readonly style="opacity:.5;cursor:not-allowed;"' : '';
+    return `<div>
+      <div class="lbl">${label}${isMod ? ' <span class="tag tag-w">已改</span>' : ''}</div>
+      <input class="field${isMod ? ' mod' : ''}" type="number" value="${val}" ${roAttr} onchange="setM('${tbl}','${key}',this.value)">
+    </div>`;
+  }).join('');
+}
+
+function setM(tbl, key, val) {
+  const t = safeTable(tbl);
+  if (!t) return;
+
+  const nv = parseFloat(val);
+  if (isNaN(nv)) { toast('请输入有效数字', false); return; }
+
+  const ov = t[key];
+  const f = D.font;
+
+  pushU({
+    u: () => {
+      t[key] = ov;
+      if (tbl === 'hhea' && key === 'ascender') f.ascender = ov;
+      if (tbl === 'hhea' && key === 'descender') f.descender = ov;
+    },
+    r: () => {
+      t[key] = nv;
+      if (tbl === 'hhea' && key === 'ascender') f.ascender = nv;
+      if (tbl === 'hhea' && key === 'descender') f.descender = nv;
+    }
+  });
+
+  t[key] = nv;
+  D.mods[`${tbl}.${key}`] = true;
+  if (tbl === 'hhea' && key === 'ascender') f.ascender = nv;
+  if (tbl === 'hhea' && key === 'descender') f.descender = nv;
+
+  refM();
+  rebuildFF();
+}
+
+function scaleMet() {
+  if (!requireFont()) return;
+  const pct = parseFloat($('scPct').value);
+  if (isNaN(pct) || pct <= 0) { toast('请输入有效的正数百分比', false); return; }
+
+  const f = D.font;
+  const s = pct / 100;
+
+  // Save old values for undo
+  const oldHhea = safeTable('hhea') ? { ...safeTable('hhea') } : null;
+  const oldVhea = safeTable('vhea') ? { ...safeTable('vhea') } : null;
+  const oldOs2 = safeTable('os2') ? { ...safeTable('os2') } : null;
+
+  const hhea = safeTable('hhea');
+  if (hhea) {
+    ['ascender', 'descender', 'lineGap'].forEach(k => {
+      hhea[k] = Math.round(hhea[k] * s);
+    });
+  }
+
+  const vhea = safeTable('vhea');
+  if (vhea) {
+    ['vertTypoAscender', 'vertTypoDescender', 'vertTypoLineGap'].forEach(k => {
+      vhea[k] = Math.round(vhea[k] * s);
+    });
+  }
+
+  const os2 = safeTable('os2');
+  if (os2) {
+    ['sTypoAscender', 'sTypoDescender', 'sTypoLineGap', 'winAscent', 'winDescent'].forEach(k => {
+      os2[k] = Math.round(os2[k] * s);
+    });
+  }
+
+  f.ascender = Math.round(f.ascender * s);
+  f.descender = Math.round(f.descender * s);
+
+  D.mods['hhea.*'] = true;
+  D.mods['os2.*'] = true;
+
+  refM();
+  rebuildFF();
+  toast(`所有度量值已缩放 ${pct}%`);
+}
+
+// ======================== CMAP ========================
+function buildCm() {
+  D.cmD = [];
+  if (!D.font) return;
+  const cm = D.font.tables && D.font.tables.cmap;
+  if (!cm || !cm.tables) return;
+
+  const seen = new Set();
+  cm.tables.forEach(st => {
+    if (!st || !st.codeMap) return;
+    Object.keys(st.codeMap).forEach(c => {
+      const code = parseInt(c);
+      const gi = st.codeMap[c];
+      if (gi > 0 && !seen.has(code)) {
+        seen.add(code);
+        const g = D.font.glyphs.get(gi);
+        D.cmD.push({
+          u: code,
+          ch: String.fromCodePoint(code),
+          gn: g ? g.name : 'g' + gi,
+          gi: gi
+        });
+      }
+    });
+  });
+  D.cmD.sort((a, b) => a.u - b.u);
+}
+
+function refCm() {
+  if (!D.font) {
+    $('cmEmpty').style.display = 'block';
+    $('cmWrap').style.display = 'none';
+    return;
+  }
+  $('cmEmpty').style.display = 'none';
+  $('cmWrap').style.display = 'block';
+
+  const q = ($('cmSrch').value || '').toLowerCase();
+  const filtered = D.cmD.filter(i => {
+    if (!q) return true;
+    const hex = 'U+' + i.u.toString(16).toUpperCase().padStart(4, '0');
+    return hex.toLowerCase().includes(q) || i.gn.toLowerCase().includes(q) || i.ch.includes(q);
+  });
+
+  const display = filtered.slice(0, 500);
+  const tb = $('cmTb');
+  tb.innerHTML = display.map(i => {
+    const hex = 'U+' + i.u.toString(16).toUpperCase().padStart(4, '0');
+    return `<tr>
+      <td style="font-family:monospace">${hex}</td>
+      <td style="font-size:16px">${i.ch}</td>
+      <td>${esc(i.gn)}</td>
+      <td>${i.gi}</td>
+      <td>
+        <button class="btn btn-xs" onclick="cmEd(${i.u})">✏</button>
+        <button class="btn btn-xs" onclick="cmRm(${i.u})">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  if (filtered.length > 500) {
+    tb.innerHTML += `<tr><td colspan="5" style="color:var(--tx-3);text-align:center">显示前 500 条 / 共 ${filtered.length} 条</td></tr>`;
+  }
+  if (filtered.length === 0) {
+    tb.innerHTML = '<tr><td colspan="5" class="empty-state">无匹配结果</td></tr>';
+  }
+}
+
+function cmF() { refCm(); }
+
+function cmEd(unicode) {
+  const item = D.cmD.find(x => x.u === unicode);
+  if (!item) return;
+  const newGn = prompt(`修改映射 U+${unicode.toString(16).toUpperCase()} → ${item.gn}\n输入新的 Glyph 名:`, item.gn);
+  if (!newGn || newGn === item.gn) return;
+
+  const glyph = D.font.glyphs.glyphs[newGn];
+  if (!glyph) { toast('未找到 Glyph: ' + newGn, false); return; }
+
+  const cm = D.font.tables.cmap;
+  if (cm && cm.tables) {
+    cm.tables.forEach(st => {
+      if (st.codeMap && st.codeMap[unicode] !== undefined) {
+        st.codeMap[unicode] = glyph.index;
+      }
+    });
+  }
+  item.gn = newGn;
+  item.gi = glyph.index;
+  refCm();
+  toast('映射已更新');
+}
+
+function cmRm(unicode) {
+  if (!confirm(`确定删除 U+${unicode.toString(16).toUpperCase()} 的映射？`)) return;
+  const cm = D.font.tables.cmap;
+  if (cm && cm.tables) {
+    cm.tables.forEach(st => {
+      if (st.codeMap) delete st.codeMap[unicode];
+    });
+  }
+  D.cmD = D.cmD.filter(x => x.u !== unicode);
+  refCm();
+  toast('映射已删除');
+}
+
+function cmAdd() {
+  if (!requireFont()) return;
+  const hexStr = prompt('输入 Unicode 码位 (十六进制, 如 4E00):');
+  if (!hexStr) return;
+  const unicode = parseInt(hexStr, 16);
+  if (isNaN(unicode) || unicode < 0) { toast('无效的十六进制码位', false); return; }
+
+  const glyphName = prompt('输入 Glyph 名:');
+  if (!glyphName) return;
+
+  const glyph = D.font.glyphs.glyphs[glyphName];
+  if (!glyph) { toast('未找到 Glyph: ' + glyphName, false); return; }
+
+  const cm = D.font.tables.cmap;
+  if (cm && cm.tables) {
+    cm.tables.forEach(st => {
+      if (st.codeMap) st.codeMap[unicode] = glyph.index;
+    });
+  }
+  D.cmD.push({ u: unicode, ch: String.fromCodePoint(unicode), gn: glyph.name, gi: glyph.index });
+  D.cmD.sort((a, b) => a.u - b.u);
+  refCm();
+  toast('映射已添加');
+}
+
+// ======================== GLYPHS ========================
+function refGl() {
+  if (!D.font) return;
+  const q = ($('glSrch').value || '').toLowerCase();
+  const f = D.font;
+  const glyphs = [];
+
+  for (let i = 0; i < f.glyphs.length && glyphs.length < 200; i++) {
+    const g = f.glyphs.get(i);
+    if (!g) continue;
+    if (g.unicode === undefined && g.name === '.notdef') continue;
+    if (q && !(g.name && g.name.toLowerCase().includes(q))) continue;
+    glyphs.push(g);
+  }
+
+  const list = $('glList');
+  list.innerHTML = glyphs.map(g => {
+    const ch = g.unicode !== undefined ? String.fromCodePoint(g.unicode) : '·';
+    const isSelected = D.selG === g.index;
+    const selStyle = isSelected ? 'border-color:var(--ac);background:var(--ac-bg);' : '';
+    return `<div style="display:inline-flex;flex-direction:column;align-items:center;padding:5px;border:1px solid var(--bd);border-radius:8px;cursor:pointer;min-width:58px;transition:all .15s;${selStyle}" onclick="selGlyph(${g.index})" title="${esc(g.name || 'g' + g.index)}">
+      <svg viewBox="0 0 100 100" width="38" height="38" style="background:var(--bg-2);border-radius:4px">
+        <text x="50" y="70" text-anchor="middle" font-size="56" fill="var(--tx-0)">${esc(ch)}</text>
+      </svg>
+      <div style="font-size:9px;margin-top:2px;max-width:50px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx-1)">${esc(g.name || 'g' + g.index)}</div>
+    </div>`;
+  }).join('');
+
+  if (glyphs.length === 0) {
+    list.innerHTML = '<div class="empty-state" style="width:100%;">无匹配字形</div>';
+  }
+}
+
+function selGlyph(idx) {
+  if (!D.font) return;
+  D.selG = idx;
+  const g = D.font.glyphs.get(idx);
+  if (!g) return;
+
+  refGl(); // update selection visual
+
+  const ch = g.unicode !== undefined ? String.fromCodePoint(g.unicode) : '';
+  const pathData = g.path ? g.path.toSVG(2) : '';
+
+  $('glDet').innerHTML = `
+    <div style="margin-bottom:12px">
+      <svg viewBox="0 0 1000 1000" width="200" height="200" style="background:var(--bg-2);border-radius:12px">
+        <g transform="translate(0,800) scale(1,-1)">
+          <path d="${pathData}" fill="var(--tx-0)" />
+        </g>
+      </svg>
+    </div>
+    <div style="font-size:14px;font-weight:600">${esc(g.name || 'g' + g.index)}</div>
+    <div style="font-size:11px;color:var(--tx-2);margin-top:4px">
+      ${g.unicode !== undefined ? 'U+' + g.unicode.toString(16).toUpperCase().padStart(4, '0') + ' (' + ch + ')' : '无 Unicode 映射'} ·
+      Index: ${g.index}${g.path ? ' · ' + g.path.commands.length + ' commands' : ''}
+    </div>
+  `;
+
+  $('glMC').style.display = 'block';
+  $('glAW').value = g.advanceWidth || 0;
+  $('glLSB').value = g.leftSideBearing || 0;
+}
+
+function glF() { refGl(); }
+
+function glSetM(key, val) {
+  if (!D.font) return;
+  const g = D.font.glyphs.get(D.selG);
+  if (!g) return;
+
+  const nv = parseFloat(val);
+  if (isNaN(nv)) { toast('请输入有效数字', false); return; }
+
+  const prop = key === 'aw' ? 'advanceWidth' : 'leftSideBearing';
+  const ov = g[prop];
+
+  pushU({
+    u: () => { g[prop] = ov; },
+    r: () => { g[prop] = nv; }
+  });
+
+  g[prop] = nv;
+  D.mods[`g.${D.selG}.${prop}`] = true;
+  rebuildFF();
+}
+
+// ======================== CONFIG ========================
+function cfgSave() {
+  if (!requireFont()) return;
+  const f = D.font;
+  const config = {
+    version: '1.0',
+    app: 'TypeForge Pro',
+    timestamp: new Date().toISOString(),
+    sourceFont: D.fname,
+    name: {},
+    metrics: {},
+    glyphMetrics: {}
+  };
+
+  // Name table
+  Object.keys(f.names).forEach(id => {
+    const entry = f.names[id];
+    if (typeof entry === 'object') {
+      config.name[id] = {};
+      Object.keys(entry).forEach(k => {
+        if (typeof entry[k] === 'string') config.name[id][k] = entry[k];
+      });
+    }
+  });
+
+  // Metrics tables
+  ['hhea', 'vhea', 'os2', 'post'].forEach(t => {
+    const tbl = safeTable(t);
+    if (tbl) {
+      config.metrics[t] = {};
+      Object.keys(tbl).forEach(k => {
+        if (typeof tbl[k] === 'number') config.metrics[t][k] = tbl[k];
+      });
+    }
+  });
+
+  // Glyph metrics (only modified)
+  for (let i = 0; i < Math.min(f.glyphs.length, 65536); i++) {
+    const g = f.glyphs.get(i);
+    if (!g) continue;
+    const awMod = D.mods[`g.${i}.advanceWidth`];
+    const lsbMod = D.mods[`g.${i}.leftSideBearing`];
+    if (awMod || lsbMod) {
+      config.glyphMetrics[i] = { name: g.name };
+      if (awMod) config.glyphMetrics[i].advanceWidth = g.advanceWidth;
+      if (lsbMod) config.glyphMetrics[i].leftSideBearing = g.leftSideBearing;
+    }
+  }
+
+  try {
+    const json = JSON.stringify(config, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = D.fname.replace(/\.[^.]+$/, '') + '_config.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('配置已保存为 JSON');
+  } catch (err) {
+    toast('保存失败: ' + err.message, false);
+  }
+}
+
+function cfgLoad(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onerror = () => toast('文件读取失败', false);
+  reader.onload = ev => {
+    try {
+      D.cfg = JSON.parse(ev.target.result);
+      cfgDf();
+      toast('配置已加载: ' + file.name);
+    } catch (err) {
+      toast('配置解析失败: ' + err.message, false);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function cfgDf() {
+  if (!D.font || !D.cfg) {
+    $('cfgDiff').innerHTML = '<div class="empty-state"><div class="icon">🔍</div>请加载字体和配置文件</div>';
+    return;
+  }
+
+  const f = D.font;
+  const c = D.cfg;
+  let html = '<table class="tbl"><thead><tr><th>位置</th><th>当前值</th><th>配置值</th><th>状态</th></tr></thead><tbody>';
+
+  // Name diffs
+  if (c.name) {
+    Object.keys(c.name).forEach(id => {
+      const cfgEntry = c.name[id];
+      Object.keys(cfgEntry).forEach(k => {
+        const curVal = f.names[id] ? f.names[id][k] : '';
+        const cfgVal = cfgEntry[k];
+        const isDiff = curVal !== cfgVal;
+        html += `<tr style="${isDiff ? 'background:var(--mod)' : ''}">
+          <td>name.${id}.${k}</td>
+          <td>${esc(String(curVal))}</td>
+          <td>${esc(String(cfgVal))}</td>
+          <td>${isDiff ? '🔄 不同' : '✅ 相同'}</td>
+        </tr>`;
+      });
+    });
+  }
+
+  // Metrics diffs
+  if (c.metrics) {
+    Object.keys(c.metrics).forEach(t => {
+      const cfgTable = c.metrics[t];
+      Object.keys(cfgTable).forEach(k => {
+        const tbl = safeTable(t);
+        const curVal = tbl ? tbl[k] : '';
+        const cfgVal = cfgTable[k];
+        const isDiff = curVal !== cfgVal;
+        html += `<tr style="${isDiff ? 'background:var(--mod)' : ''}">
+          <td>${t}.${k}</td>
+          <td>${curVal}</td>
+          <td>${cfgVal}</td>
+          <td>${isDiff ? '🔄 不同' : '✅ 相同'}</td>
+        </tr>`;
+      });
+    });
+  }
+
+  html += '</tbody></table>';
+  $('cfgDiff').innerHTML = html;
+}
+
+function cfgPre(presetKey) {
+  if (!requireFont()) return;
+  const f = D.font;
+  const upm = f.unitsPerEm || 1000;
+
+  const presets = {
+    cjk: {
+      name: 'CJK 竖排优化',
+      metrics: {
+        vhea: {
+          vertTypoAscender: Math.round(upm * 0.88),
+          vertTypoDescender: Math.round(-upm * 0.12),
+          vertTypoLineGap: 0
+        }
+      }
+    },
+    mono: {
+      name: '等宽修正',
+      metrics: {
+        post: { isFixedPitch: 1 }
+      }
+    },
+    web: {
+      name: 'Web 字体优化',
+      metrics: {
+        hhea: { lineGap: 0 },
+        os2: { sTypoLineGap: 0 }
+      }
+    }
+  };
+
+  const preset = presets[presetKey];
+  if (!preset) { toast('未知预置模板', false); return; }
+
+  Object.keys(preset.metrics).forEach(tbl => {
+    const target = safeTable(tbl);
+    if (!target) return;
+    Object.keys(preset.metrics[tbl]).forEach(k => {
+      const v = preset.metrics[tbl][k];
+      const ov = target[k];
+      pushU({
+        u: () => { target[k] = ov; },
+        r: () => { target[k] = v; }
+      });
+      target[k] = v;
+      D.mods[`${tbl}.${k}`] = true;
+    });
+  });
+
+  refM();
+  rebuildFF();
+  toast(`已应用预置模板: ${preset.name}`);
+}
+
+function cfgBat(event) {
+  const files = event.target.files;
+  if (!files.length || !requireFont() || !D.cfg) {
+    toast('请先加载字体和配置文件', false);
+    return;
+  }
+
+  const cfg = D.cfg;
+  let processed = 0;
+  const total = files.length;
+  $('batSt').innerHTML = `处理中 0/${total}...`;
+
+  Array.from(files).forEach(file => {
+    const reader = new FileReader();
+    reader.onerror = () => {
+      $('batSt').innerHTML += `<div style="color:var(--err)">❌ ${esc(file.name)}: 读取失败</div>`;
+    };
+    reader.onload = ev => {
+      try {
+        const font = opentype.parse(ev.target.result);
+
+        // Apply name
+        if (cfg.name) {
+          Object.keys(cfg.name).forEach(id => { font.names[id] = cfg.name[id]; });
+        }
+
+        // Apply metrics
+        if (cfg.metrics) {
+          Object.keys(cfg.metrics).forEach(t => {
+            if (font.tables[t]) {
+              Object.keys(cfg.metrics[t]).forEach(k => {
+                font.tables[t][k] = cfg.metrics[t][k];
+              });
+            }
+          });
+        }
+
+        // Download
+        const buffer = font.toArrayBuffer();
+        const blob = new Blob([buffer], { type: 'font/ttf' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = file.name.replace(/\.[^.]+$/, '') + '_edit.ttf';
+        a.click();
+        URL.revokeObjectURL(a.href);
+
+        processed++;
+        $('batSt').innerHTML = `已处理: ${processed}/${total}`;
+      } catch (err) {
+        $('batSt').innerHTML += `<div style="color:var(--err)">❌ ${esc(file.name)}: ${err.message}</div>`;
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+  event.target.value = '';
+}
+
+// ======================== SUBSET ========================
+function doSub() {
+  if (!requireFont()) return;
+
+  const unicodes = new Set();
+
+  // Parse direct characters
+  const charInput = $('subCh').value;
+  for (const ch of charInput) unicodes.add(ch.codePointAt(0));
+
+  // Parse hex ranges
+  $('subRng').value.split('\n').forEach(line => {
+    line = line.trim();
+    if (!line) return;
+    const match = line.match(/^([0-9A-Fa-f]+)(?:\s*-\s*([0-9A-Fa-f]+))?$/);
+    if (match) {
+      const start = parseInt(match[1], 16);
+      const end = match[2] ? parseInt(match[2], 16) : start;
+      if (!isNaN(start) && !isNaN(end)) {
+        for (let i = start; i <= end; i++) unicodes.add(i);
+      }
+    }
+  });
+
+  if (unicodes.size === 0) { toast('请输入要保留的字符或 Unicode 范围', false); return; }
+
+  const f = D.font;
+  const keepSet = new Set([0]); // always keep .notdef
+
+  unicodes.forEach(u => {
+    try {
+      const gi = f.charToGlyphIndex(String.fromCodePoint(u));
+      if (gi > 0) keepSet.add(gi);
+    } catch (e) { /* skip invalid codepoint */ }
+  });
+
+  const subsetGlyphs = [];
+  keepSet.forEach(idx => {
+    const g = f.glyphs.get(idx);
+    if (g) subsetGlyphs.push(g);
+  });
+
+  try {
+    const subsetFont = new opentype.Font({
+      familyName: en(f.names.fontFamily) || 'Subset',
+      styleName: en(f.names.fontSubfamily) || 'Regular',
+      unitsPerEm: f.unitsPerEm,
+      ascender: f.ascender,
+      descender: f.descender,
+      glyphs: subsetGlyphs
+    });
+
+    const buffer = subsetFont.toArrayBuffer();
+    const blob = new Blob([buffer], { type: 'font/ttf' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = D.fname.replace(/\.[^.]+$/, '') + '_subset.ttf';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast(`子集化完成: ${unicodes.size} 个字符, ${subsetGlyphs.length} 个字形`);
+  } catch (err) {
+    toast('子集化失败: ' + err.message, false);
+  }
+}
+
+// ======================== TTX EXPORT ========================
+function genTTX() {
+  if (!requireFont()) return;
+
+  const f = D.font;
+  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<ttFont>\n\n';
+
+  // head
+  const head = safeTable('head');
+  if (head) {
+    xml += '<head>\n';
+    xml += `  <unitsPerEm value="${head.unitsPerEm}"/>\n`;
+    xml += `  <created value="${head.created || ''}"/>\n`;
+    xml += `  <modified value="${head.modified || ''}"/>\n`;
+    xml += `  <xMin value="${head.xMin}"/>\n`;
+    xml += `  <yMin value="${head.yMin}"/>\n`;
+    xml += `  <xMax value="${head.xMax}"/>\n`;
+    xml += `  <yMax value="${head.yMax}"/>\n`;
+    xml += '</head>\n\n';
+  }
+
+  // hhea
+  const hhea = safeTable('hhea');
+  if (hhea) {
+    xml += '<hhea>\n';
+    xml += `  <ascender value="${hhea.ascender}"/>\n`;
+    xml += `  <descender value="${hhea.descender}"/>\n`;
+    xml += `  <lineGap value="${hhea.lineGap}"/>\n`;
+    xml += `  <advanceWidthMax value="${hhea.advanceWidthMax || 0}"/>\n`;
+    xml += '</hhea>\n\n';
+  }
+
+  // vhea
+  const vhea = safeTable('vhea');
+  if (vhea) {
+    xml += '<vhea>\n';
+    xml += `  <vertTypoAscender value="${vhea.vertTypoAscender}"/>\n`;
+    xml += `  <vertTypoDescender value="${vhea.vertTypoDescender}"/>\n`;
+    xml += `  <vertTypoLineGap value="${vhea.vertTypoLineGap}"/>\n`;
+    xml += '</vhea>\n\n';
+  }
+
+  // OS/2
+  const os2 = safeTable('os2');
+  if (os2) {
+    xml += '<OS/2>\n';
+    xml += `  <sTypoAscender value="${os2.sTypoAscender}"/>\n`;
+    xml += `  <sTypoDescender value="${os2.sTypoDescender}"/>\n`;
+    xml += `  <sTypoLineGap value="${os2.sTypoLineGap}"/>\n`;
+    xml += `  <usWinAscent value="${os2.winAscent}"/>\n`;
+    xml += `  <usWinDescent value="${os2.winDescent}"/>\n`;
+    xml += '</OS/2>\n\n';
+  }
+
+  // name
+  xml += '<name>\n';
+  if (f.names) {
+    Object.keys(f.names).forEach(id => {
+      const entry = f.names[id];
+      if (typeof entry === 'object') {
+        Object.keys(entry).forEach(k => {
+          if (typeof entry[k] === 'string') {
+            xml += `  <namerecord nameID="${id}" platformKey="${k}">${esc(entry[k])}</namerecord>\n`;
+          }
+        });
+      }
+    });
+  }
+  xml += '</name>\n\n';
+
+  // post
+  const post = safeTable('post');
+  if (post) {
+    xml += '<post>\n';
+    xml += `  <underlinePosition value="${post.underlinePosition}"/>\n`;
+    xml += `  <underlineThickness value="${post.underlineThickness}"/>\n`;
+    xml += `  <isFixedPitch value="${post.isFixedPitch ? 1 : 0}"/>\n`;
+    xml += '</post>\n\n';
+  }
+
+  xml += `<maxp numGlyphs="${f.numGlyphs}"/>\n\n`;
+  xml += '</ttFont>';
+
+  $('ttxOut').innerHTML = `<pre style="font-size:11px;color:var(--tx-0);white-space:pre-wrap;font-family:'SF Mono','Courier New',monospace">${esc(xml)}</pre>`;
+}
+
+// ======================== MASTER REFRESH ========================
+function refresh() {
+  if (!D.font) return;
+  updInfo();
+  pvUpdate();
+  refN();
+  refM();
+  refCm();
+  refGl();
+  if (D.cfg) cfgDf();
+}
+
+// ======================== KEYBOARD ========================
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'z') { e.preventDefault(); doUndo(); }
+  if (e.ctrlKey && e.key === 'y') { e.preventDefault(); doRedo(); }
+});
+
+// ======================== INIT ========================
+updUR();
+</script>
+</body>
+</html>
