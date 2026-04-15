@@ -1173,112 +1173,136 @@ def get_glyph(session_id, glyph_name):
     is_composite = hasattr(glyph, 'isComposite') and callable(glyph.isComposite) and glyph.isComposite()
     is_empty = hasattr(glyph, 'numberOfContours') and (glyph.numberOfContours == 0 or glyph.numberOfContours is None)
     
-    # Build comprehensive result
-    result = {
-        'name': glyph_name,
-        # Basic metrics
-        'advanceWidth': aw,
-        'leftSideBearing': lsb,
-        'advanceHeight': ah,
-        'topSideBearing': tsb,
-        # Glyph type
-        'numberOfContours': getattr(glyph, 'numberOfContours', 0) or 0,
-        'isComposite': is_composite,
-        'isSimple': is_simple,
-        'isEmpty': is_empty,
-        # SVG path for display
-        'path': svg_data['path'] if svg_data else '',
-        'bounds': svg_data['bounds'] if svg_data else None,
-        # Complete bounds from glyf
-        'xMin': getattr(glyph, 'xMin', 0),
-        'yMin': getattr(glyph, 'yMin', 0),
-        'xMax': getattr(glyph, 'xMax', 0),
-        'yMax': getattr(glyph, 'yMax', 0),
-        # Full fonttools attributes
-        '_fonttools': {
-            'type': type(glyph).__name__,
-            'hasHinting': getattr(glyph, 'program', None) is not None,
-            'programSize': len(glyph.program) if hasattr(glyph, 'program') and glyph.program else 0,
+    # Build comprehensive result (wrap in try-except to prevent 500 on any attribute error)
+    try:
+        result = {
+            'name': glyph_name,
+            # Basic metrics
+            'advanceWidth': aw,
+            'leftSideBearing': lsb,
+            'advanceHeight': ah,
+            'topSideBearing': tsb,
+            # Glyph type
+            'numberOfContours': getattr(glyph, 'numberOfContours', 0) or 0,
+            'isComposite': is_composite,
+            'isSimple': is_simple,
+            'isEmpty': is_empty,
+            # SVG path for display
+            'path': svg_data['path'] if svg_data else '',
+            'bounds': svg_data['bounds'] if svg_data else None,
+            # Complete bounds from glyf
+            'xMin': getattr(glyph, 'xMin', 0),
+            'yMin': getattr(glyph, 'yMin', 0),
+            'xMax': getattr(glyph, 'xMax', 0),
+            'yMax': getattr(glyph, 'yMax', 0),
+            # Full fonttools attributes
+            '_fonttools': {
+                'type': type(glyph).__name__,
+                'hasHinting': getattr(glyph, 'program', None) is not None,
+                'programSize': (len(glyph.program.assembly)
+                                if hasattr(glyph, 'program') and glyph.program
+                                   and hasattr(glyph.program, 'assembly')
+                                else (1 if hasattr(glyph, 'program') and glyph.program else 0)),
+            }
         }
-    }
-    
-    # Simple glyph: get coordinates and flags
-    if is_simple and not is_empty:
-        try:
-            coords, endPts, flags = glyph.getCoordinates(glyf)
-            points = []
-            for j, (x, y) in enumerate(coords):
-                # Decode flag bits
-                on_curve = bool(flags[j] & 0x01)
-                x_short = bool(flags[j] & 0x02)
-                y_short = bool(flags[j] & 0x04)
-                x_same = bool(flags[j] & 0x10)
-                y_same = bool(flags[j] & 0x20)
-                
-                points.append({
-                    'x': int(x),
-                    'y': int(y),
-                    'onCurve': on_curve,
-                    '_flags': {
-                        'xShort': x_short,
-                        'yShort': y_short,
-                        'xSame': x_same,
-                        'ySame': y_same,
-                    }
-                })
-            
-            result['points'] = points
-            result['endPtsOfContours'] = list(endPts) if endPts else []
-            result['_fonttools']['totalPoints'] = len(points)
-            result['_fonttools']['totalContours'] = len(endPts) if endPts else 0
-        except Exception as e:
-            dbg("Failed to get coordinates for %s: %s", glyph_name, e)
-    
-    # Composite glyph: get components
-    if is_composite:
-        try:
-            components = []
-            comp_glyph = glyph
-            while hasattr(comp_glyph, 'isComposite') and callable(comp_glyph.isComposite) and comp_glyph.isComposite():
-                if hasattr(comp_glyph, 'glyphName'):
-                    comp_info = {
-                        'glyphName': comp_glyph.glyphName,
-                        'x': getattr(comp_glyph, 'x', 0),
-                        'y': getattr(comp_glyph, 'y', 0),
-                        'flags': getattr(comp_glyph, 'flags', 0),
-                    }
-                    # Transform matrix info
-                    if hasattr(comp_glyph, 'transform') and comp_glyph.transform:
-                        t = comp_glyph.transform
-                        comp_info['transform'] = {
-                            'a': t.a, 'b': t.b, 'c': t.c, 'd': t.d
+
+        # Simple glyph: get coordinates and flags
+        if is_simple and not is_empty:
+            try:
+                coords, endPts, flags = glyph.getCoordinates(glyf)
+                points = []
+                for j, (x, y) in enumerate(coords):
+                    # Decode flag bits
+                    on_curve = bool(flags[j] & 0x01)
+                    x_short = bool(flags[j] & 0x02)
+                    y_short = bool(flags[j] & 0x04)
+                    x_same = bool(flags[j] & 0x10)
+                    y_same = bool(flags[j] & 0x20)
+
+                    points.append({
+                        'x': int(x),
+                        'y': int(y),
+                        'onCurve': on_curve,
+                        '_flags': {
+                            'xShort': x_short,
+                            'yShort': y_short,
+                            'xSame': x_same,
+                            'ySame': y_same,
                         }
-                    # Component flags
-                    flags_val = comp_info['flags']
-                    comp_info['_flags'] = {
-                        'ARGS_ARE_XY_VALUES': bool(flags_val & 0x0002),
-                        'ARG_1_AND_2_ARE_WORDS': bool(flags_val & 0x0001),
-                        'WE_HAVE_A_SCALE': bool(flags_val & 0x0008),
-                        'WE_HAVE_AN_X_AND_Y_SCALE': bool(flags_val & 0x0040),
-                        'WE_HAVE_A_TWO_BY_TWO': bool(flags_val & 0x0080),
-                        'USE_MY_METRICS': bool(flags_val & 0x0200),
-                        'SCALED_COMPONENT_OFFSET': bool(flags_val & 0x0800),
-                        'UNSCALED_COMPONENT_OFFSET': bool(flags_val & 0x1000),
-                    }
-                    components.append(comp_info)
-                
-                # Move to next component (composite glyphes are nested)
-                if hasattr(comp_glyph, 'glyph'):
-                    comp_glyph = comp_glyph.glyph
-                else:
-                    break
-            
-            result['components'] = components
-            result['_fonttools']['componentCount'] = len(components)
-        except Exception as e:
-            dbg("Failed to get components for %s: %s", glyph_name, e)
-            result['components'] = []
-    
+                    })
+
+                result['points'] = points
+                result['endPtsOfContours'] = list(endPts) if endPts else []
+                result['_fonttools']['totalPoints'] = len(points)
+                result['_fonttools']['totalContours'] = len(endPts) if endPts else 0
+            except Exception as e:
+                dbg("Failed to get coordinates for %s: %s", glyph_name, e)
+
+        # Composite glyph: get components
+        if is_composite:
+            try:
+                components = []
+                comp_glyph = glyph
+                while hasattr(comp_glyph, 'isComposite') and callable(comp_glyph.isComposite) and comp_glyph.isComposite():
+                    if hasattr(comp_glyph, 'glyphName'):
+                        comp_info = {
+                            'glyphName': comp_glyph.glyphName,
+                            'x': getattr(comp_glyph, 'x', 0),
+                            'y': getattr(comp_glyph, 'y', 0),
+                            'flags': getattr(comp_glyph, 'flags', 0),
+                        }
+                        # Transform matrix info
+                        if hasattr(comp_glyph, 'transform') and comp_glyph.transform:
+                            t = comp_glyph.transform
+                            comp_info['transform'] = {
+                                'a': t.a, 'b': t.b, 'c': t.c, 'd': t.d
+                            }
+                        # Component flags
+                        flags_val = comp_info['flags']
+                        comp_info['_flags'] = {
+                            'ARGS_ARE_XY_VALUES': bool(flags_val & 0x0002),
+                            'ARG_1_AND_2_ARE_WORDS': bool(flags_val & 0x0001),
+                            'WE_HAVE_A_SCALE': bool(flags_val & 0x0008),
+                            'WE_HAVE_AN_X_AND_Y_SCALE': bool(flags_val & 0x0040),
+                            'WE_HAVE_A_TWO_BY_TWO': bool(flags_val & 0x0080),
+                            'USE_MY_METRICS': bool(flags_val & 0x0200),
+                            'SCALED_COMPONENT_OFFSET': bool(flags_val & 0x0800),
+                            'UNSCALED_COMPONENT_OFFSET': bool(flags_val & 0x1000),
+                        }
+                        components.append(comp_info)
+
+                    # Move to next component (composite glyphs are nested)
+                    if hasattr(comp_glyph, 'glyph'):
+                        comp_glyph = comp_glyph.glyph
+                    else:
+                        break
+
+                result['components'] = components
+                result['_fonttools']['componentCount'] = len(components)
+            except Exception as e:
+                dbg("Failed to get components for %s: %s", glyph_name, e)
+                result['components'] = []
+
+    except Exception as e:
+        dbg("Error building glyph result for %s: %s", glyph_name, e)
+        # Return minimal safe result instead of 500
+        result = {
+            'name': glyph_name,
+            'advanceWidth': aw,
+            'leftSideBearing': lsb,
+            'advanceHeight': ah,
+            'topSideBearing': tsb,
+            'numberOfContours': 0,
+            'isComposite': False,
+            'isSimple': False,
+            'isEmpty': True,
+            'path': svg_data['path'] if svg_data else '',
+            'bounds': svg_data['bounds'] if svg_data else None,
+            'xMin': 0, 'yMin': 0, 'xMax': 0, 'yMax': 0,
+            '_error': str(e),
+            '_fonttools': {'type': 'unknown', 'hasHinting': False, 'programSize': 0},
+        }
+
     return jsonify(result)
 
 @app.route('/api/glyph/<session_id>/<glyph_name>/metrics', methods=['POST'])
@@ -1760,7 +1784,22 @@ def preview_font(session_id):
     if not path:
         return jsonify({'error': 'Cannot save font'}), 500
     
-    return send_file(path, mimetype='font/sfnt')
+    # Determine correct MIME type based on font flavor
+    font = info['font']
+    flavor = getattr(font, 'flavor', None)
+    sfVersion = font.get('head').magicNumber if font.get('head') else None
+    if flavor == 'woff':
+        mime = 'font/woff'
+    elif flavor == 'woff2':
+        mime = 'font/woff2'
+    elif font.sfVersion == 'OTTO' if hasattr(font, 'sfVersion') else False:
+        mime = 'font/otf'
+    else:
+        # TTF / CFF-in-TTF wrapper
+        ext = os.path.splitext(path)[1].lower()
+        mime = 'font/otf' if ext == '.otf' else 'font/ttf'
+    
+    return send_file(path, mimetype=mime)
 
 @app.route('/api/otl-features/<session_id>', methods=['GET'])
 def get_otl_features(session_id):

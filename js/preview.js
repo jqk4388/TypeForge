@@ -79,9 +79,11 @@ function buildIframeSrcdoc(text, size, lineH, bg, writingMode) {
 <style>
 @font-face {
   font-family: 'PreviewFont';
-  src: url('${previewFontUrl}') format('truetype');
+  src: url('${previewFontUrl}') format('opentype'),
+       url('${previewFontUrl}') format('truetype');
   font-weight: normal;
   font-style: normal;
+  font-display: block;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
