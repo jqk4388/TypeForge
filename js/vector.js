@@ -68,42 +68,37 @@ export function initVector() {
   });
 }
 
-/** 初始化 Paper.js - 使用 requestAnimationFrame 确保面板可见 */
+/** 初始化 Paper.js — DPR感知画布 + 滚轮缩放 + 空格手型拖拽 */
 function ensurePaperInit() {
   const canvas = $('#vecCanvas');
-  if (!canvas) {
-    console.warn('[Vector] Canvas not found');
-    return false;
-  }
+  if (!canvas) { console.warn('[Vector] Canvas not found'); return false; }
 
-  // 检查实际显示尺寸
   const rect = canvas.getBoundingClientRect();
   console.log('[Vector] Canvas rect:', rect.width, 'x', rect.height);
-
   if (rect.width < 50 || rect.height < 50) {
     vecState.initAttempts++;
     console.log(`[Vector] Canvas not visible (attempt ${vecState.initAttempts}), waiting...`);
-    if (vecState.initAttempts < 10) {
-      setTimeout(() => ensurePaperInit(), 100);
-    }
+    if (vecState.initAttempts < 10) setTimeout(() => ensurePaperInit(), 100);
     return false;
   }
 
-  if (vecState.initialized && vecState.paperScope) {
-    resizeCanvas();
-    return true;
-  }
+  if (vecState.initialized && vecState.paperScope) { resizeCanvas(); return true; }
 
+  // ── DPR 感知画布 ───────────────────────────────────────────
+  // canvas.width/height  = 物理像素（CSS px × DPR）
+  // canvas.style  = CSS 像素尺寸（与 rect 一致）
+  // view.viewSize = CSS 像素尺寸
+  // → Paper.js view 坐标系与 CSS px 完全对齐，e.offsetX/Y 可直接用
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(rect.width * dpr);
+  canvas.width  = Math.round(rect.width  * dpr);
   canvas.height = Math.round(rect.height * dpr);
-  console.log('[Vector] Canvas size:', canvas.width, 'x', canvas.height);
+  canvas.style.width  = rect.width  + 'px';
+  canvas.style.height = rect.height + 'px';
+  console.log('[Vector] Canvas phys:', canvas.width, 'x', canvas.height, ' DPR:', dpr);
 
   try {
     if (typeof paper === 'undefined') {
-      console.error('[Vector] Paper.js not loaded!');
-      toast('Paper.js 未加载', 'err');
-      return false;
+      toast('Paper.js 未加载', 'err'); return false;
     }
 
     const ps = new paper.PaperScope();
@@ -111,69 +106,83 @@ function ensurePaperInit() {
     vecState.paperScope = ps;
     ps.view.viewSize = new ps.Size(rect.width, rect.height);
 
-    // 创建交互工具
-    const tool = new ps.Tool();
+    // ── 空格键手型拖拽状态 ────────────────────────────────────
+    let spaceDown = false;
+    let panDrag   = null;
     let hitResult = null;
-    let dragItem = null;
+    let dragItem  = null;
+
+    function applyCursor() {
+      if (!canvas) return;
+      canvas.style.cursor = spaceDown ? (panDrag ? 'grabbing' : 'grab')
+        : (vecState.tool === 'select'   ? 'default'
+         : vecState.tool === 'addOn' || vecState.tool === 'addOff' ? 'crosshair'
+         : vecState.tool === 'delete'  ? 'not-allowed'
+         : vecState.tool === 'toggleCurve' ? 'pointer' : 'default');
+    }
+
+    window.addEventListener('keydown', e => {
+      if (e.code === 'Space' && e.target === document.body) {
+        e.preventDefault();
+        if (!spaceDown) { spaceDown = true; applyCursor(); }
+      }
+    });
+    window.addEventListener('keyup', e => {
+      if (e.code === 'Space') { spaceDown = false; panDrag = null; applyCursor(); }
+    });
+
+    const tool = new ps.Tool();
+    const MIN_ZOOM = 0.05, MAX_ZOOM = 50;
 
     tool.onMouseDown = function(event) {
       if (!vecState.paperScope) return;
-      const zoom = vecState.paperScope.view.zoom || 1;
-      const threshold = 12 / zoom;
+      if (spaceDown) {
+        panDrag = { startProject: event.point.clone(), startCenter: ps.view.center.clone() };
+        applyCursor(); return;
+      }
+      const zoom     = ps.view.zoom || 1;
+      const threshold = Math.max(6, 14 / zoom);
 
       if (vecState.tool === 'select') {
         hitResult = null;
         for (let i = vecState.pointItems.length - 1; i >= 0; i--) {
           const item = vecState.pointItems[i];
-          if (!item) continue;
-          if (event.point.getDistance(item.position) < threshold) {
-            hitResult = { idx: i, item };
-            dragItem = item;
-            updateVecPointInfo(i);
-            break;
+          if (item && event.point.getDistance(item.position) < threshold) {
+            hitResult = { idx: i, item }; dragItem = item; updateVecPointInfo(i); break;
           }
         }
       } else if (vecState.tool === 'delete') {
-        let minDist = Infinity, minIdx = -1;
+        let minD = Infinity, minI = -1;
         for (let i = 0; i < vecState.pointItems.length; i++) {
           const item = vecState.pointItems[i];
-          if (!item) continue;
-          const d = event.point.getDistance(item.position);
-          if (d < minDist) { minDist = d; minIdx = i; }
+          if (item) { const d = event.point.getDistance(item.position); if (d < minD) { minD = d; minI = i; } }
         }
-        if (minDist < threshold && minIdx >= 0) {
-          deletePoint(minIdx);
-        }
+        if (minD < threshold && minI >= 0) deletePoint(minI);
       } else if (vecState.tool === 'toggleCurve') {
-        let minDist = Infinity, minIdx = -1;
+        let minD = Infinity, minI = -1;
         for (let i = 0; i < vecState.pointItems.length; i++) {
           const item = vecState.pointItems[i];
-          if (!item) continue;
-          const d = event.point.getDistance(item.position);
-          if (d < minDist) { minDist = d; minIdx = i; }
+          if (item) { const d = event.point.getDistance(item.position); if (d < minD) { minD = d; minI = i; } }
         }
-        if (minDist < threshold && minIdx >= 0) {
-          vecState.points[minIdx].onCurve = !vecState.points[minIdx].onCurve;
-          pushHistory();
-          renderVecEditor();
+        if (minD < threshold && minI >= 0) {
+          vecState.points[minI].onCurve = !vecState.points[minI].onCurve;
+          pushHistory(); renderVecEditor();
         }
       } else if (vecState.tool === 'addOn' || vecState.tool === 'addOff') {
-        const x = Math.round(event.point.x);
-        const y = Math.round(-event.point.y);
-        const newPt = { x, y, onCurve: vecState.tool === 'addOn' };
-        vecState.points.push(newPt);
-        if (vecState.endPts.length > 0) {
-          vecState.endPts[vecState.endPts.length - 1] = vecState.points.length - 1;
-        } else {
-          vecState.endPts.push(vecState.points.length - 1);
-        }
-        pushHistory();
-        renderVecEditor();
+        const x = Math.round(event.point.x), y = Math.round(-event.point.y);
+        vecState.points.push({ x, y, onCurve: vecState.tool === 'addOn' });
+        if (vecState.endPts.length > 0) vecState.endPts[vecState.endPts.length - 1] = vecState.points.length - 1;
+        else vecState.endPts.push(vecState.points.length - 1);
+        pushHistory(); renderVecEditor();
         $('#vecPointCount').textContent = vecState.points.length;
       }
     };
 
     tool.onMouseDrag = function(event) {
+      if (spaceDown && panDrag) {
+        const delta = panDrag.startProject.subtract(event.point);
+        ps.view.center = panDrag.startCenter.add(delta); applyCursor(); return;
+      }
       if (vecState.tool === 'select' && dragItem && hitResult) {
         dragItem.position = dragItem.position.add(event.delta);
         const idx = hitResult.idx;
@@ -184,26 +193,26 @@ function ensurePaperInit() {
     };
 
     tool.onMouseUp = function() {
-      if (vecState.tool === 'select' && dragItem && hitResult) {
-        pushHistory();
-      }
-      dragItem = null;
-      hitResult = null;
+      if (spaceDown && panDrag) { panDrag = null; applyCursor(); return; }
+      if (vecState.tool === 'select' && dragItem && hitResult) pushHistory();
+      dragItem = null; hitResult = null;
     };
 
-    // 滚轮缩放
-    ps.view.element.addEventListener('wheel', (e) => {
+    // ── 滚轮缩放（以鼠标为中心，上下限保护） ─────────────────
+    canvas.addEventListener('wheel', e => {
       e.preventDefault();
       if (!vecState.paperScope) return;
-      const factor = e.deltaY > 0 ? 0.9 : 1.1;
-      const viewPos = ps.view.viewToProject(new ps.Point(e.offsetX, e.offsetY));
-      ps.view.scale(factor, viewPos);
+      const factor  = e.deltaY > 0 ? 0.88 : 1.14;
+      const newZoom  = ps.view.zoom * factor;
+      if (newZoom < MIN_ZOOM || newZoom > MAX_ZOOM) return;
+      // e.offsetX/Y = CSS像素，直接传给 viewToProject（viewSize 也是 CSS 像素）
+      ps.view.scale(factor, ps.view.viewToProject(new ps.Point(e.offsetX, e.offsetY)));
     }, { passive: false });
 
-    vecState.initialized = true;
-    vecState.initAttempts = 0;
+    vecState.initialized  = true;
+    vecState.initAttempts  = 0;
     updateToolCursor();
-    console.log('[Vector] Paper.js initialized successfully');
+    console.log('[Vector] Paper.js ready (DPR-aware, pan+zoom)');
     return true;
   } catch (e) {
     console.error('[Vector] Paper.js init failed:', e);
@@ -235,16 +244,13 @@ function resizeCanvas() {
   if (!canvas || !vecState.paperScope) return;
   const rect = canvas.getBoundingClientRect();
   if (rect.width < 50 || rect.height < 50) return;
-
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(rect.width * dpr);
+  canvas.width  = Math.round(rect.width  * dpr);
   canvas.height = Math.round(rect.height * dpr);
+  canvas.style.width  = rect.width  + 'px';
+  canvas.style.height = rect.height + 'px';
   vecState.paperScope.view.viewSize = new vecState.paperScope.Size(rect.width, rect.height);
-
-  if (vecState.glyphName) {
-    renderVecEditor();
-    fitView();
-  }
+  if (vecState.glyphName) { renderVecEditor(); fitView(); }
 }
 
 export async function loadVecGlyph(name) {
@@ -626,6 +632,9 @@ async function saveVecGlyph() {
 function updateToolCursor() {
   const canvas = $('#vecCanvas');
   if (!canvas) return;
+  if (vecState._getSpaceDown && vecState._getSpaceDown()) {
+    canvas.style.cursor = 'grab'; return;
+  }
   switch (vecState.tool) {
     case 'select': canvas.style.cursor = 'default'; break;
     case 'addOn': case 'addOff': canvas.style.cursor = 'crosshair'; break;

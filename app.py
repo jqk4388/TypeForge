@@ -1971,6 +1971,30 @@ def export_ttx(session_id):
         dbg("TTX export error: %s", traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/ttx/<session_id>/download', methods=['GET'])
+def download_ttx(session_id):
+    """Download full TTX as a .ttx file (bypasses JSON body size limit)."""
+    info = get_font(session_id)
+    if not info:
+        return jsonify({'error': 'Session not found'}), 404
+    font = info['font']
+    try:
+        ttx_path = os.path.join(FONTS_DIR, f"{session_id}_export.ttx")
+        font.saveXML(ttx_path)
+        basename = os.path.splitext(info.get('original_name', 'font'))[0]
+        resp = send_file(ttx_path, as_attachment=True,
+                         download_name=f"{basename}.ttx",
+                         mimetype='application/xml')
+        try:
+            os.unlink(ttx_path)
+        except Exception:
+            pass
+        return resp
+    except Exception as e:
+        dbg("TTX download error: %s", traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/ttx/<session_id>', methods=['POST'])
 def import_ttx(session_id):
     info = get_font(session_id)

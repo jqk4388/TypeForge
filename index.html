@@ -126,7 +126,7 @@
       </div>
       <div style="display:flex;gap:12px">
         <div style="flex:1;position:relative">
-          <canvas id="vecCanvas" class="vec-canvas" style="width:100%;height:560px" resize></canvas>
+          <canvas id="vecCanvas" class="vec-canvas" style="width:100%;height:560px"></canvas>
         </div>
         <div style="width:200px">
           <div class="card" style="margin-bottom:8px">
@@ -236,8 +236,11 @@
       </div>
       <div id="ttxOutput" class="card" style="margin-top:12px;display:none">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <span class="lbl">TTX 输出</span>
-          <button class="btn-ghost btn-sm" id="ttxCopyBtn">复制</button>
+          <span class="lbl">TTX 输出 <span id="ttxLineCount" style="font-weight:400;color:var(--tx-2)"></span></span>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sm" id="ttxDownloadBtn">📥 下载文件</button>
+            <button class="btn-ghost btn-sm" id="ttxCopyBtn">复制</button>
+          </div>
         </div>
         <pre id="ttxContent" style="font-size:11px;max-height:400px;overflow:auto;color:var(--tx-1);white-space:pre-wrap;word-break:break-all"></pre>
       </div>

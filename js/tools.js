@@ -10,7 +10,16 @@ export function initTools() {
     navigator.clipboard.writeText($('#ttxContent')?.textContent || '');
     toast('已复制');
   });
+  $('#ttxDownloadBtn')?.addEventListener('click', onTtxDownload);
   $('#subsetBtn')?.addEventListener('click', onSubset);
+}
+
+/** 预览前 N 行，隐藏太长内容 */
+function previewFirstLines(text, maxLines = 80) {
+  const lines = text.split('\n');
+  if (lines.length <= maxLines) return text;
+  return lines.slice(0, maxLines).join('\n') +
+    `\n\n… 共 ${lines.length} 行，完整内容请下载文件 …`;
 }
 
 async function onTtxExport() {
@@ -26,13 +35,28 @@ async function onTtxExport() {
     const ttxOutput = $('#ttxOutput');
     if (ttxOutput) ttxOutput.style.display = 'block';
     const ttxContent = $('#ttxContent');
-    if (ttxContent) ttxContent.textContent = data.ttx || '(空)';
+    if (ttxContent) {
+      const full = data.ttx || '(空)';
+      const totalLines = full.split('\n').length;
+      const preview = previewFirstLines(full);
+      ttxContent.textContent = preview;
+      const lineCount = $('#ttxLineCount');
+      if (lineCount) lineCount.textContent = `(${totalLines} 行)`;
+    }
     toast('TTX 导出成功');
   } catch (e) {
     toast('TTX 导出失败: ' + e.message, 'err');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '导出 TTX'; }
   }
+}
+
+/** 直接下载 .ttx 文件（绕过 JSON body 体积限制） */
+function onTtxDownload() {
+  if (!state.SID) { toast('请先加载字体', 'warn'); return; }
+  const filename = state.fontInfo?.filename?.replace(/\.\w+$/, '.ttx') || 'font.ttx';
+  window.location.href = `/api/ttx/${state.SID}/download`;
+  toast('开始下载 ' + filename);
 }
 
 async function onSubset() {
