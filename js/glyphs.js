@@ -36,6 +36,10 @@ export function initGlyphs() {
   // 添加新字形
   $('#glyphAddNew')?.addEventListener('click', () => showAddGlyphDialog());
   
+  // 导出 SVG / PNG
+  $('#glyphExportSvgBtn')?.addEventListener('click', () => exportGlyphs('svg'));
+  $('#glyphExportPngBtn')?.addEventListener('click', () => exportGlyphs('png'));
+  
   // 监听滚动（虚拟滚动）
   $('#glyphGrid')?.addEventListener('scroll', onScroll);
 }
@@ -275,6 +279,8 @@ function showGlyphDetailPanel(data) {
       <button class="btn-ghost btn-sm" id="glyphToVec">🖌️ 编辑</button>
       <button class="btn-ghost btn-sm" id="glyphBigPreview">🔍 大图</button>
       <button class="btn-ghost btn-sm" id="glyphSelectForBatch">☑ 选中</button>
+      <button class="btn-ghost btn-sm" id="glyphExportSvg">SVG</button>
+      <button class="btn-ghost btn-sm" id="glyphExportPng">PNG</button>
     </div>`;
   
   $('#glyphSaveMetrics')?.addEventListener('click', async () => {
@@ -296,6 +302,9 @@ function showGlyphDetailPanel(data) {
     toggleSelection(data.name);
     showBatchEdit();
   });
+  
+  $('#glyphExportSvg')?.addEventListener('click', () => exportSingleGlyph(data.name, 'svg'));
+  $('#glyphExportPng')?.addEventListener('click', () => exportSingleGlyph(data.name, 'png'));
 }
 
 function showBatchEdit() {
@@ -486,4 +495,80 @@ function populateVecGlyphSelect() {
   }
   sel.innerHTML = '';
   sel.appendChild((fragment));
+}
+
+// ─── Export Functions ──────────────────────────────────────────
+
+async function exportSingleGlyph(name, format) {
+  if (!state.SID) return;
+  const ext = format.toUpperCase();
+  toast(`正在导出 ${name}.${ext}...`);
+  try {
+    const url = `/api/glyph/${state.SID}/${encodeURIComponent(name)}/export/${format}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: '导出失败' }));
+      throw new Error(err.error);
+    }
+    const blob = await res.blob();
+    triggerDownload(blob, `${name}.${format}`);
+    toast(`已导出: ${name}.${format}`);
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+async function exportGlyphs(format) {
+  if (!state.SID) {
+    toast('请先加载字体', 'warn');
+    return;
+  }
+
+  // Determine which glyphs to export: selected > filtered > all
+  let names;
+  if (selectedGlyphs.size > 0) {
+    names = [...selectedGlyphs];
+  } else {
+    names = filteredGlyphs.map(g => g.name);
+  }
+
+  if (names.length === 0) {
+    toast('没有可导出的字形', 'warn');
+    return;
+  }
+
+  const ext = format.toUpperCase();
+  const label = selectedGlyphs.size > 0
+    ? `${selectedGlyphs.size} 个选中字形`
+    : `${names.length} 个字形`;
+
+  // Single glyph: download directly, no zip
+  if (names.length === 1) {
+    await exportSingleGlyph(names[0], format);
+    return;
+  }
+
+  // Multi: zip download
+  toast(`正在打包 ${label} 为 ${ext} ZIP...`);
+  try {
+    const res = await api(`/glyphs/${state.SID}/export/${format}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names })
+    });
+    const blob = await res.blob();
+    const basename = state.fontInfo?.filename?.replace(/\.\w+$/, '') || 'glyphs';
+    triggerDownload(blob, `${basename}_glyphs_${format}.zip`);
+    toast(`已导出 ${label} → ${ext} ZIP`);
+  } catch (e) {
+    toast('导出失败: ' + e.message, 'err');
+  }
+}
+
+function triggerDownload(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }

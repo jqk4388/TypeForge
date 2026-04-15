@@ -4,7 +4,7 @@ TypeForge Pro v2 — Flask + fonttools Backend
 全功能字体编辑 API 服务
 """
 
-import os, sys, io, json, copy, tempfile, traceback, uuid, time, logging
+import os, sys, io, json, copy, tempfile, traceback, uuid, time, logging, zipfile
 from pathlib import Path
 from functools import wraps
 from collections import OrderedDict
@@ -2018,6 +2018,174 @@ def delete_otl_subtable(session_id, tag, lookup_idx, st_idx):
     lookup.SubTableCount -= 1
     log_info("Deleted subtable %d from lookup %d (%s)", st_idx, lookup_idx, tag)
     return jsonify({'ok': True})
+
+# ─── Glyph Export (SVG / PNG) ────────────────────────────────────
+
+def _build_glyph_svg_string(font, glyph_name, em_size=1000, padding=40, show_grid=True, stroke_color='#7c5cfc', fill_color='rgba(124,92,252,0.15)'):
+    """Build a complete SVG string for a single glyph."""
+    glyf = font.get('glyf')
+    if glyf is None:
+        return None
+
+    try:
+        glyph = glyf.get(glyph_name)
+    except KeyError:
+        return None
+    if glyph is None:
+        return None
+
+    hmtx = font.get('hmtx')
+    aw = 0
+    if hmtx and glyph_name in hmtx.metrics:
+        aw = hmtx.metrics[glyph_name][0]
+
+    # Bounds
+    if hasattr(glyph, 'xMin') and glyph.xMin is not None:
+        x_min, y_min, x_max, y_max = glyph.xMin, glyph.yMin, glyph.xMax, glyph.yMax
+    else:
+        x_min, y_min, x_max, y_max = 0, -200, 500, 800
+
+    view_w = (x_max - x_min) or 500
+    view_h = (y_max - y_min) or 800
+    pad = padding
+    vb_x = x_min - pad
+    vb_y = -(y_max + pad)  # flip Y for SVG
+    vb_w = view_w + pad * 2
+    vb_h = view_h + pad * 2
+
+    # Build path data
+    path_d = ''
+    has_outline = hasattr(glyph, 'numberOfContours') and glyph.numberOfContours is not None and glyph.numberOfContours != 0
+    is_composite = hasattr(glyph, 'isComposite') and callable(glyph.isComposite) and glyph.isComposite()
+
+    if has_outline or is_composite:
+        try:
+            pen = SVGPathPen(font.getGlyphSet())
+            glyph.draw(pen, glyfTable=glyf)
+            path_d = pen.getCommands()
+        except Exception:
+            path_d = ''
+
+    # Grid lines
+    grid_svg = ''
+    if show_grid:
+        for i in range(0, int(max(aw, x_max) + pad * 2), 100):
+            grid_svg += f'<line x1="{i}" y1="{-pad}" x2="{i}" y2="{-(y_max + pad + pad)}" stroke="#333" stroke-width="0.3"/>'
+        for i in range(int(-pad), int(abs(y_min) + pad), 100):
+            grid_svg += f'<line x1="{-pad}" y1="{i}" x2="{x_max + pad + pad}" y2="{i}" stroke="#333" stroke-width="0.3"/>'
+        # Baseline
+        grid_svg += f'<line x1="-50" y1="0" x2="{x_max + 50}" y2="0" stroke="#2dd4a0" stroke-width="0.8"/>'
+
+    # Advance width line
+    aw_svg = ''
+    if aw > 0:
+        aw_svg = f'<line x1="{aw}" y1="-50" x2="{aw}" y2="{-abs(y_min) - 50}" stroke="#f43f5e" stroke-width="0.5" stroke-dasharray="4,3"/>'
+
+    svg = f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb_x} {vb_y} {vb_w} {vb_h}" width="{vb_w}" height="{vb_h}">
+  <rect width="100%" height="100%" fill="#0f0f18"/>
+  {grid_svg}
+  {aw_svg}
+  {f'<path d="{path_d}" fill="{fill_color}" stroke="{stroke_color}" stroke-width="2" transform="scale(1,-1)"/>' if path_d else ''}
+  <text x="{vb_x + 8}" y="{-vb_y - 8}" fill="#6e6e8a" font-size="12" font-family="monospace">{glyph_name}</text>
+</svg>'''
+    return svg
+
+
+@app.route('/api/glyph/<session_id>/<glyph_name>/export/svg', methods=['GET'])
+def export_glyph_svg(session_id, glyph_name):
+    """Export a single glyph as SVG file."""
+    info = get_font(session_id)
+    if not info:
+        return jsonify({'error': 'Session not found'}), 404
+
+    svg_str = _build_glyph_svg_string(info['font'], glyph_name)
+    if svg_str is None:
+        return jsonify({'error': f'Glyph {glyph_name} not found'}), 404
+
+    buf = io.BytesIO(svg_str.encode('utf-8'))
+    return send_file(buf, mimetype='image/svg+xml', as_attachment=True, download_name=f"{glyph_name}.svg")
+
+
+@app.route('/api/glyph/<session_id>/<glyph_name>/export/png', methods=['GET'])
+def export_glyph_png(session_id, glyph_name):
+    """Export a single glyph as PNG file."""
+    info = get_font(session_id)
+    if not info:
+        return jsonify({'error': 'Session not found'}), 404
+
+    scale = safe_int(request.args.get('scale', 2), 2)  # 2x by default for retina
+    svg_str = _build_glyph_svg_string(info['font'], glyph_name)
+    if svg_str is None:
+        return jsonify({'error': f'Glyph {glyph_name} not found'}), 404
+
+    # SVG -> PNG via cairosvg
+    try:
+        import cairosvg
+        png_data = cairosvg.svg2png(bytestring=svg_str.encode('utf-8'), scale=scale)
+        buf = io.BytesIO(png_data)
+        return send_file(buf, mimetype='image/png', as_attachment=True, download_name=f"{glyph_name}.png")
+    except ImportError:
+        return jsonify({'error': 'cairosvg not installed. Run: pip install cairosvg'}), 500
+    except Exception as e:
+        return jsonify({'error': f'PNG export failed: {str(e)}'}), 500
+
+
+@app.route('/api/glyphs/<session_id>/export/svg', methods=['POST'])
+def export_glyphs_svg_batch(session_id):
+    """Export multiple glyphs as a ZIP of SVG files."""
+    info = get_font(session_id)
+    if not info:
+        return jsonify({'error': 'Session not found'}), 404
+
+    data = request.json or {}
+    names = data.get('names', [])
+    if not names:
+        return jsonify({'error': 'No glyphs specified'}), 400
+
+    font = info['font']
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for name in names:
+            svg_str = _build_glyph_svg_string(font, name)
+            if svg_str:
+                zf.writestr(f"{name}.svg", svg_str)
+
+    buf.seek(0)
+    basename = os.path.splitext(info.get('original_name', 'glyphs'))[0]
+    return send_file(buf, mimetype='application/zip', as_attachment=True, download_name=f"{basename}_glyphs_svg.zip")
+
+
+@app.route('/api/glyphs/<session_id>/export/png', methods=['POST'])
+def export_glyphs_png_batch(session_id):
+    """Export multiple glyphs as a ZIP of PNG files."""
+    info = get_font(session_id)
+    if not info:
+        return jsonify({'error': 'Session not found'}), 404
+
+    try:
+        import cairosvg
+    except ImportError:
+        return jsonify({'error': 'cairosvg not installed. Run: pip install cairosvg'}), 500
+
+    data = request.json or {}
+    names = data.get('names', [])
+    scale = safe_int(data.get('scale', 2), 2)
+    if not names:
+        return jsonify({'error': 'No glyphs specified'}), 400
+
+    font = info['font']
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for name in names:
+            svg_str = _build_glyph_svg_string(font, name)
+            if svg_str:
+                png_data = cairosvg.svg2png(bytestring=svg_str.encode('utf-8'), scale=scale)
+                zf.writestr(f"{name}.png", png_data)
+
+    buf.seek(0)
+    basename = os.path.splitext(info.get('original_name', 'glyphs'))[0]
+    return send_file(buf, mimetype='application/zip', as_attachment=True, download_name=f"{basename}_glyphs_png.zip")
 
 # ─── Subset ─────────────────────────────────────────────────────────
 

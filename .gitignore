@@ -10,3 +10,5 @@ __pycache__/
 .workbuddy/
 uploads/
 *.tmp
+dist/
+.playwright-cli/
