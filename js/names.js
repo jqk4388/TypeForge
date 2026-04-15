@@ -88,8 +88,7 @@ function renderNameTable(filter = '') {
     const platName = getPlatformName(r.platformID);
     const langName = getLanguageName(r.platformID, r.langID);
 
-    // nameID 带定义标签
-    const nidLabel = getNameIDLabel(r.nameID);
+    // nameID 带定义标签（nidLabel 已在 filter 中声明）
     const nidHtml = nidLabel
       ? `${r.nameID} <span style="font-size:11px;color:var(--tx-2)">${nidLabel}</span>`
       : `${r.nameID}`;
