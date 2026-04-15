@@ -19,7 +19,7 @@ async function onTtxExport() {
   const btn = $('#ttxExportBtn');
   if (btn) { btn.disabled = true; btn.textContent = '导出中…'; }
   try {
-    const url = `/api/ttx/${state.SID}` + (table ? `?table=${encodeURIComponent(table)}` : '');
+    const url = `/ttx/${state.SID}` + (table ? `?table=${encodeURIComponent(table)}` : '');
     const res = await api(url);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
