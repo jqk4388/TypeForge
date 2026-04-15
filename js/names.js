@@ -51,6 +51,7 @@ export async function initNames() {
   $('#nameAddBtn')?.addEventListener('click', onAddName);
   $('#nameQuickBtn')?.addEventListener('click', toggleQuickEdit);
   $('#nameBatchBtn')?.addEventListener('click', onBatchReplace);
+  $('#namePSBtn')?.addEventListener('click', togglePSPanel);
 }
 
 export async function loadNames() {
@@ -194,4 +195,208 @@ async function onBatchReplace() {
     await loadNames();
     toast(`已替换 ${data.replaced} 处`);
   } catch (e) { toast(e.message, 'err'); }
+}
+
+// ─── PostScript Name Generator (Adobe TN #5902) ──────────────────
+
+async function togglePSPanel() {
+  const panel = $('#namePSPanel');
+  if (panel.style.display !== 'none') {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  panel.innerHTML = '<div style="text-align:center;padding:20px;color:var(--tx-2)">加载中...</div>';
+  await renderPSPanel();
+}
+
+async function renderPSPanel() {
+  const panel = $('#namePSPanel');
+  try {
+    const res = await api(`/ps-name/${state.SID}`);
+    const data = await res.json();
+    if (data.error) {
+      panel.innerHTML = `<div style="color:var(--err)">错误: ${data.error}</div>`;
+      return;
+    }
+
+    let html = '';
+
+    // Header
+    html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <span style="font-size:16px">🔤</span>
+      <span style="font-weight:600">PostScript 名称生成器</span>
+      <span style="font-size:11px;color:var(--tx-3)">Adobe TN #5902</span>
+      ${data.isVariable
+        ? '<span style="font-size:10px;background:var(--ac);color:#fff;padding:2px 6px;border-radius:4px">可变字体</span>'
+        : '<span style="font-size:10px;background:var(--tx-3);color:#fff;padding:2px 6px;border-radius:4px">静态字体</span>'}
+    </div>`;
+
+    // Warnings
+    if (data.warnings && data.warnings.length > 0) {
+      html += '<div style="margin-bottom:12px">';
+      for (const w of data.warnings) {
+        html += `<div style="font-size:12px;color:var(--wrn);margin-bottom:4px">⚠ ${w}</div>`;
+      }
+      html += '</div>';
+    }
+
+    // Current PS name
+    if (data.currentPSName) {
+      html += `<div style="margin-bottom:12px">
+        <div style="font-size:11px;color:var(--tx-2);margin-bottom:4px">当前 PostScript 名称 (nameID 6)</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <code style="font-size:13px;background:var(--bg-2);padding:4px 10px;border-radius:4px;flex:1;word-break:break-all">${data.currentPSName}</code>
+          <span style="font-size:10px;color:var(--tx-3)">${data.currentPSName.length}/127</span>
+        </div>
+      </div>`;
+    }
+
+    // Family prefix section
+    html += `<div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--tx-2);margin-bottom:4px">
+        族名前缀 ${data.hasName25 ? '(来自 nameID 25)' : '(来自 nameID 16/1)'}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <code style="font-size:13px;background:var(--bg-2);padding:4px 10px;border-radius:4px;flex:1;word-break:break-all">${data.familyPrefix || '(空)'}</code>
+        <input class="fld ps-prefix-input" value="${data.familyPrefix || ''}" placeholder="自定义前缀..." style="width:180px">
+        <button class="btn btn-sm ps-prefix-btn" style="white-space:nowrap">设置前缀</button>
+      </div>
+    </div>`;
+
+    // Variable font sections
+    if (data.isVariable && data.namedInstances) {
+      // Named instances table
+      html += `<div style="margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px">命名实例</div>
+        <table style="width:100%;font-size:12px">
+          <thead><tr style="color:var(--tx-2)">
+            <th style="text-align:left;padding:4px 6px">实例名</th>
+            <th style="text-align:left;padding:4px 6px">生成的 PS 名称</th>
+            <th style="text-align:left;padding:4px 6px">算法</th>
+            <th style="text-align:center;padding:4px 6px">长度</th>
+            <th style="padding:4px 6px"></th>
+          </tr></thead><tbody>`;
+
+      for (const inst of data.namedInstances) {
+        const validColor = inst.valid ? 'var(--ok)' : 'var(--err)';
+        const algoLabels = { named_instance: '命名', arbitrary: '任意坐标', last_resort: '最后手段' };
+        const coordsStr = Object.entries(inst.coordinates)
+          .map(([k, v]) => `${k}=${typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(2)) : v}`)
+          .join(', ');
+
+        html += `<tr>
+          <td style="padding:4px 6px" title="${coordsStr}">${inst.name}</td>
+          <td style="padding:4px 6px"><code style="font-size:11px">${inst.psName}</code></td>
+          <td style="padding:4px 6px;color:var(--tx-3)">${algoLabels[inst.algorithm] || inst.algorithm}</td>
+          <td style="padding:4px 6px;text-align:center;color:${validColor}">${inst.length}</td>
+          <td style="padding:4px 6px">
+            <button class="btn-ghost btn-sm ps-apply-btn" data-name="${inst.psName.replace(/"/g, '&quot;')}" title="应用到 nameID 6">✓</button>
+          </td>
+        </tr>`;
+      }
+      html += '</tbody></table></div>';
+
+      // Arbitrary instance examples
+      if (data.arbitraryExamples && data.arbitraryExamples.length > 0) {
+        html += `<div style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:600;margin-bottom:8px">任意坐标示例</div>
+          <table style="width:100%;font-size:12px">
+            <thead><tr style="color:var(--tx-2)">
+              <th style="text-align:left;padding:4px 6px">坐标</th>
+              <th style="text-align:left;padding:4px 6px">生成的 PS 名称</th>
+              <th style="text-align:center;padding:4px 6px">长度</th>
+              <th style="padding:4px 6px"></th>
+            </tr></thead><tbody>`;
+
+        for (const ex of data.arbitraryExamples) {
+          const validColor = ex.valid ? 'var(--ok)' : 'var(--err)';
+          const coordsStr = Object.entries(ex.coordinates)
+            .map(([k, v]) => `${k}=${typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(2)) : v}`)
+            .join(', ');
+
+          html += `<tr>
+            <td style="padding:4px 6px;font-size:11px;color:var(--tx-2)">${coordsStr}</td>
+            <td style="padding:4px 6px"><code style="font-size:11px">${ex.psName}</code></td>
+            <td style="padding:4px 6px;text-align:center;color:${validColor}">${ex.length}</td>
+            <td style="padding:4px 6px">
+              <button class="btn-ghost btn-sm ps-apply-btn" data-name="${ex.psName.replace(/"/g, '&quot;')}" title="应用到 nameID 6">✓</button>
+            </td>
+          </tr>`;
+        }
+        html += '</tbody></table></div>';
+
+        // Axes info
+        if (data.axes && data.axes.length > 0) {
+          html += `<div style="font-size:11px;color:var(--tx-3);margin-bottom:8px">
+            变体轴: ${data.axes.map(a => `${a.tag} (${a.min}–${a.max}, 默认 ${a.default})`).join(' · ')}
+          </div>`;
+        }
+      }
+    }
+
+    // Static font info
+    if (!data.isVariable) {
+      html += `<div style="font-size:12px;color:var(--tx-2);margin-bottom:8px">
+        静态字体：族名前缀可作为 PostScript 名称基础。建议将 nameID 6 设置为合规的 ASCII 字母数字名称。
+      </div>`;
+      if (data.generated) {
+        html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <code style="font-size:13px;background:var(--bg-2);padding:4px 10px;border-radius:4px">${data.generated}</code>
+          <button class="btn btn-sm ps-apply-btn" data-name="${data.generated.replace(/"/g, '&quot;')}">应用到 nameID 6</button>
+        </div>`;
+      }
+    }
+
+    // Algorithm reference
+    html += `<details style="margin-top:12px">
+      <summary style="font-size:11px;color:var(--tx-3);cursor:pointer">算法参考 (Adobe TN #5902)</summary>
+      <div style="font-size:11px;color:var(--tx-3);margin-top:8px;line-height:1.6">
+        <b>1. 前缀</b>: nameID 25 (Variations PS Name Prefix) → nameID 16 (Typo Family) → nameID 1 (Family)<br>
+        <b>2. 命名实例</b>: 前缀 + "-" + 净化子族名（去非ASCII字母数字）<br>
+        <b>3. 任意实例</b>: 前缀 + "_值轴tag"（默认值坐标可省略，16.16定点精度）<br>
+        <b>4. 最后手段</b>: 超过127字符时，前缀 + "-" + 标识符 + "..."<br>
+        <b>限制</b>: PS 名称最长 127 字符，仅允许 ASCII 字母数字 + "-_."
+      </div>
+    </details>`;
+
+    panel.innerHTML = html;
+
+    // Bind apply buttons
+    panel.querySelectorAll('.ps-apply-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const name = btn.dataset.name;
+        if (!name) return;
+        try {
+          await api(`/ps-name/${state.SID}/apply`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ psName: name })
+          });
+          btn.style.color = 'var(--ok)';
+          toast(`PS 名称已设为: ${name}`);
+          await loadNames();
+        } catch (e) { toast(e.message, 'err'); }
+      });
+    });
+
+    // Bind prefix set button
+    panel.querySelector('.ps-prefix-btn')?.addEventListener('click', async () => {
+      const input = panel.querySelector('.ps-prefix-input');
+      const prefix = input?.value || '';
+      try {
+        await api(`/ps-name/${state.SID}/prefix`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefix })
+        });
+        toast('nameID 25 前缀已设置');
+        await renderPSPanel();
+        await loadNames();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+
+  } catch (e) {
+    panel.innerHTML = `<div style="color:var(--err)">加载失败: ${e.message}</div>`;
+  }
 }

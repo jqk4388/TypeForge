@@ -2306,6 +2306,285 @@ def import_ttx(session_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
+# ─── PostScript Name Generation (Adobe TN #5902) ────────────────────
+
+def _fixed_to_float(value, precision_bits=16):
+    """Convert a 16.16 fixed-point number to shortest-precision float.
+    From Adobe TN #5902 Appendix."""
+    if not value:
+        return 0.0
+    scale = 1 << precision_bits
+    value /= scale
+    eps = 0.5 / scale
+    lo = value - eps
+    hi = value + eps
+    if int(lo) != int(hi):
+        return float(round(value))
+    fmt = "%.8f"
+    lo_s = fmt % lo
+    hi_s = fmt % hi
+    for i in range(len(lo_s)):
+        if lo_s[i] != hi_s[i]:
+            break
+    period = lo_s.find('.')
+    result_fmt = "%%.%df" % (i - period)
+    return float(result_fmt % value)
+
+
+def _sanitize_ps_string(s):
+    """Remove non-ASCII alphanumerics from a string for PostScript name."""
+    import re
+    return re.sub(r'[^A-Za-z0-9]', '', s)
+
+
+def _generate_ps_name(font):
+    """Generate PostScript name per Adobe TN #5902 algorithm.
+    Returns dict with generated name, algorithm used, and details."""
+    name_table = font.get('name')
+    fvar_table = font.get('fvar')
+
+    # Build family prefix (step 1: check nameID 25)
+    family_prefix = ''
+    has_name25 = False
+    if name_table:
+        try:
+            name25 = name_table.getName(25, 3, 1, 0x0409)
+            if name25:
+                family_prefix = _sanitize_ps_string(name25.toUnicode())
+                has_name25 = True
+        except Exception:
+            pass
+
+    # If no nameID 25, use typographic family name (nameID 16) or family name (nameID 1)
+    if not family_prefix and name_table:
+        for nid in (16, 1):
+            try:
+                rec = name_table.getName(nid, 3, 1, 0x0409)
+                if rec:
+                    family_prefix = _sanitize_ps_string(rec.toUnicode())
+                    break
+            except Exception:
+                pass
+
+    result = {
+        'familyPrefix': family_prefix,
+        'hasName25': has_name25,
+        'isVariable': fvar_table is not None,
+    }
+
+    # Non-variable font: just return prefix-based info
+    if not fvar_table:
+        # For static fonts, PS name is typically nameID 6
+        ps_name = ''
+        if name_table:
+            try:
+                rec = name_table.getName(6, 3, 1, 0x0409)
+                if rec:
+                    ps_name = rec.toUnicode()
+            except Exception:
+                pass
+        result['currentPSName'] = ps_name
+        result['generated'] = family_prefix
+        result['algorithm'] = 'static'
+        result['valid'] = (
+            len(ps_name) <= 127 and bool(ps_name)
+        ) if ps_name else False
+        result['warnings'] = []
+        if ps_name and len(ps_name) > 127:
+            result['warnings'].append(f'PostScript 名称超过 127 字符限制（当前 {len(ps_name)}）')
+        if ps_name and not all(c.isascii() and (c.isalnum() or c in '-_.') for c in ps_name):
+            result['warnings'].append('PostScript 名称包含非 ASCII 字母数字字符')
+        return result
+
+    # Variable font processing
+    axes = []
+    for axis in fvar_table.axes:
+        axes.append({
+            'tag': axis.axisTag.strip(),
+            'min': axis.minValue,
+            'default': axis.defaultValue,
+            'max': axis.maxValue,
+            'nameID': axis.axisNameID,
+        })
+
+    # Get instance names
+    def _get_instance_name(subfamily_name_id):
+        try:
+            rec = name_table.getName(subfamily_name_id, 3, 1, 0x0409)
+            return rec.toUnicode() if rec else None
+        except Exception:
+            return None
+
+    named_instances = []
+    for inst in fvar_table.instances:
+        coords = dict(inst.coordinates)
+        inst_name = _get_instance_name(inst.subfamilyNameID)
+        if inst_name is None:
+            try:
+                inst_name = str(inst.subfamilyNameID)
+            except Exception:
+                inst_name = 'Unknown'
+
+        # Generate PS name for this named instance
+        sanitized_style = '-' + _sanitize_ps_string(inst_name)
+        ps_name = family_prefix + sanitized_style
+
+        algorithm = 'named_instance'
+        if len(ps_name) > 127:
+            # Last resort: prefix + identifier + "..."
+            hex_id = format(hash(inst_name) & 0xFFFFFF, '06X').upper()
+            ps_name = family_prefix + '-' + hex_id + '...'
+            algorithm = 'last_resort'
+
+        named_instances.append({
+            'name': inst_name,
+            'coordinates': coords,
+            'psName': ps_name,
+            'algorithm': algorithm,
+            'length': len(ps_name),
+            'valid': len(ps_name) <= 127,
+        })
+
+    result['axes'] = axes
+    result['namedInstances'] = named_instances
+
+    # Also generate a "default instance" PS name (all defaults = just prefix)
+    default_ps = family_prefix
+    result['defaultInstancePSName'] = default_ps
+
+    # Generate arbitrary instance examples
+    arbitrary_examples = []
+    if len(axes) <= 5:
+        # Generate a few representative arbitrary instances
+        combos = [
+            # All defaults
+            {a['tag']: a['default'] for a in axes},
+        ]
+        # Add min/max combos for each axis
+        if len(axes) == 1:
+            combos.append({axes[0]['tag']: axes[0]['max']})
+        elif len(axes) >= 2:
+            combos.append({axes[0]['tag']: axes[0]['max'], axes[1]['tag']: axes[1]['default']})
+            combos.append({axes[0]['tag']: axes[0]['default'], axes[1]['tag']: axes[1]['max']})
+
+        for coords in combos:
+            parts = [family_prefix]
+            for axis in axes:
+                tag = axis['tag']
+                val = coords.get(tag, axis['default'])
+                if val == axis['default']:
+                    continue  # Omit default values
+                # Format value using 16.16 fixed precision
+                fixed_val = int(round(val * (1 << 16)))
+                float_val = _fixed_to_float(fixed_val)
+                if float_val == int(float_val):
+                    val_str = str(int(float_val))
+                else:
+                    val_str = str(float_val)
+                parts.append(f'_{val_str}{tag}')
+
+            ps_name = ''.join(parts)
+            if not ps_name.startswith(family_prefix + '_') and ps_name == family_prefix:
+                # No variation from defaults, add a minimal descriptor
+                if axes:
+                    ps_name = family_prefix  # Just prefix is valid for default
+
+            algorithm = 'arbitrary'
+            if len(ps_name) > 127:
+                hex_id = format(abs(hash(str(coords))) & 0xFFFFFF, '06X').upper()
+                ps_name = family_prefix + '-' + hex_id + '...'
+                algorithm = 'last_resort'
+
+            arbitrary_examples.append({
+                'coordinates': coords,
+                'psName': ps_name,
+                'algorithm': algorithm,
+                'length': len(ps_name),
+                'valid': len(ps_name) <= 127,
+            })
+
+    result['arbitraryExamples'] = arbitrary_examples
+
+    # Check current PS name (nameID 6)
+    current_ps = ''
+    if name_table:
+        try:
+            rec = name_table.getName(6, 3, 1, 0x0409)
+            if rec:
+                current_ps = rec.toUnicode()
+        except Exception:
+            pass
+    result['currentPSName'] = current_ps
+
+    # Validation
+    warnings = []
+    if current_ps:
+        if len(current_ps) > 127:
+            warnings.append(f'当前 PostScript 名称（nameID 6）超过 127 字符限制（{len(current_ps)} 字符）')
+        if not all(c.isascii() and (c.isalnum() or c in '-_.') for c in current_ps):
+            warnings.append('当前 PostScript 名称包含非标准字符')
+        # Check if current name matches generated default
+        if current_ps != result.get('defaultInstancePSName', '') and named_instances:
+            # It's ok if it matches a named instance
+            matches = [ni for ni in named_instances if ni['psName'] == current_ps]
+            if not matches:
+                warnings.append(f'当前 PS 名称与生成的默认名称不一致')
+
+    if not family_prefix:
+        warnings.append('未找到族名前缀（nameID 16 或 1），无法生成标准 PS 名称')
+    if fvar_table and len(axes) > 5 and not has_name25:
+        warnings.append(f'变体轴超过 5 个且无 nameID 25 前缀，部分实例可能触发"最后手段"命名')
+
+    result['warnings'] = warnings
+    result['valid'] = len(warnings) == 0
+
+    return result
+
+
+@app.route('/api/ps-name/<session_id>', methods=['GET'])
+def get_ps_name_info(session_id):
+    """Generate and validate PostScript names per Adobe TN #5902."""
+    info = get_font(session_id)
+    if not info:
+        return jsonify({'error': 'Session not found'}), 404
+    return jsonify(_generate_ps_name(info['font']))
+
+
+@app.route('/api/ps-name/<session_id>/apply', methods=['POST'])
+def apply_ps_name(session_id):
+    """Apply a generated PostScript name to nameID 6."""
+    info = get_font(session_id)
+    if not info:
+        return jsonify({'error': 'Session not found'}), 404
+
+    data = request.json
+    ps_name = data.get('psName', '')
+    if not ps_name:
+        return jsonify({'error': 'Empty PS name'}), 400
+    if len(ps_name) > 127:
+        return jsonify({'error': f'PS name exceeds 127 char limit ({len(ps_name)})'}), 400
+
+    font = info['font']
+    font['name'].setName(ps_name, 6, 3, 1, 0x0409)
+    log_info("Applied PS name: %s", ps_name)
+    return jsonify({'ok': True, 'psName': ps_name})
+
+
+@app.route('/api/ps-name/<session_id>/prefix', methods=['POST'])
+def set_ps_name_prefix(session_id):
+    """Set nameID 25 (Variations PostScript Name Prefix)."""
+    info = get_font(session_id)
+    if not info:
+        return jsonify({'error': 'Session not found'}), 404
+
+    data = request.json
+    prefix = data.get('prefix', '')
+    font = info['font']
+    font['name'].setName(prefix, 25, 3, 1, 0x0409)
+    log_info("Set PS name prefix (nameID 25): %s", prefix)
+    return jsonify({'ok': True, 'prefix': prefix})
+
+
 # ─── Config ─────────────────────────────────────────────────────────
 
 @app.route('/api/config/<session_id>', methods=['GET'])
