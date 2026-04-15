@@ -1,0 +1,14 @@
+[    1293ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ about:blank:0
+[    1296ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ about:blank:0
+[    2329ms] [ERROR] Failed to load resource: the server responded with a status of 404 (NOT FOUND) @ http://localhost:5000/favicon.ico:0
+[    2597ms] [LOG] Backend connected: {cache: Object, debug: true, fonttools: true, status: ok} @ http://localhost:5000/js/app.js:57
+[  106311ms] [ERROR] Failed to load resource: the server responded with a status of 404 (NOT FOUND) @ http://localhost:5000/api/otl/628e1f3e/GSUB:0
+[  106485ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ about:srcdoc:0
+[  106487ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ about:srcdoc:0
+[  148187ms] [LOG] [Vector] Panel visible @ http://localhost:5000/js/vector.js:303
+[  148288ms] [LOG] [Vector] Canvas rect: 974 x 560 @ http://localhost:5000/js/vector.js:76
+[  148288ms] [LOG] [Vector] Canvas phys: 974 x 560  DPR: 1 @ http://localhost:5000/js/vector.js:96
+[  148290ms] [LOG] [Vector] Paper.js ready (DPR-aware, pan+zoom) @ http://localhost:5000/js/vector.js:214
+[  198035ms] [LOG] [Vector] Canvas rect: 974 x 560 @ http://localhost:5000/js/vector.js:76
+[  198039ms] [LOG] [Vector] Path rendered via pathData, segments: 30 @ http://localhost:5000/js/vector.js:433
+[  198043ms] [LOG] [Vector] Path rendered via pathData, segments: 30 @ http://localhost:5000/js/vector.js:433

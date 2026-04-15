@@ -143,9 +143,15 @@ input[type=range]::-webkit-slider-thumb {
 }
 
 /* ─── Vector Editor Canvas ────────────────────────────────────── */
+#vecCanvasWrap {
+  background: var(--bg-2);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+}
 .vec-canvas {
-  background: var(--bg-2); border: 1px solid var(--bd);
-  border-radius: 8px; cursor: crosshair;
+  display: block;
+  /* Paper.js 通过 setup() 自主管理 canvas 的物理像素和 DPR */
+  /* 容器 #vecCanvasWrap 控制尺寸，canvas 通过 JS 设置 100% */
 }
 
 /* ─── Toast ───────────────────────────────────────────────────── */

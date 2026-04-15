@@ -1,0 +1,99 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]: ⬡ TypeForge Pro
+      - generic [ref=e5]: v2 fonttools
+      - generic [ref=e6] [cursor=pointer]: 📂 打开字体
+      - button "💾 下载 TTF" [ref=e7] [cursor=pointer]
+      - button "下载 WOFF" [ref=e8]
+      - generic [ref=e28]: test-font.ttf
+      - button "🌗" [ref=e9] [cursor=pointer]
+    - navigation [ref=e10]:
+      - button "📋" [ref=e11] [cursor=pointer]
+      - button "🏷️" [ref=e12] [cursor=pointer]
+      - button "📏" [ref=e13] [cursor=pointer]
+      - button "🔤" [ref=e14] [cursor=pointer]
+      - button "✏️" [ref=e15] [cursor=pointer]
+      - button "🖌️" [ref=e16] [cursor=pointer]
+      - button "⚙️" [ref=e17] [cursor=pointer]
+      - button "👁️" [ref=e18] [cursor=pointer]
+      - button "📦" [ref=e19] [cursor=pointer]
+      - button "🔧" [ref=e20] [cursor=pointer]
+    - main [ref=e21]:
+      - generic [ref=e22]:
+        - heading "字体总览" [level=2] [ref=e23]
+        - generic [ref=e24]:
+          - generic [ref=e30]:
+            - generic [ref=e31]:
+              - generic [ref=e32]: 文件名
+              - generic [ref=e33]: test-font.ttf
+            - generic [ref=e34]:
+              - generic [ref=e35]: 字形数
+              - generic [ref=e36]: "669"
+            - generic [ref=e37]:
+              - generic [ref=e38]: cmap 映射
+              - generic [ref=e39]: "898"
+            - generic [ref=e40]:
+              - generic [ref=e41]: GPOS
+              - generic [ref=e42]: ✗ 无
+            - generic [ref=e43]:
+              - generic [ref=e44]: GSUB
+              - generic [ref=e45]: ✗ 无
+            - generic [ref=e46]:
+              - generic [ref=e47]: GDEF
+              - generic [ref=e48]: ✗ 无
+            - generic [ref=e49]:
+              - generic [ref=e50]: fvar
+              - text: —
+          - generic [ref=e51]:
+            - generic [ref=e52]: 字体表 (19)
+            - generic [ref=e53]:
+              - generic [ref=e54]: GlyphOrder
+              - generic [ref=e55]: head
+              - generic [ref=e56]: hhea
+              - generic [ref=e57]: maxp
+              - generic [ref=e58]: OS/2
+              - generic [ref=e59]: hmtx
+              - generic [ref=e60]: LTSH
+              - generic [ref=e61]: VDMX
+              - generic [ref=e62]: hdmx
+              - generic [ref=e63]: cmap
+              - generic [ref=e64]: fpgm
+              - generic [ref=e65]: prep
+              - generic [ref=e66]: cvt
+              - generic [ref=e67]: loca
+              - generic [ref=e68]: glyf
+              - generic [ref=e69]: name
+              - generic [ref=e70]: post
+              - generic [ref=e71]: gasp
+              - generic [ref=e72]: DSIG
+          - generic [ref=e73]:
+            - generic [ref=e74]: 名称摘要
+            - table [ref=e75]:
+              - rowgroup [ref=e76]:
+                - row "ID 说明 值" [ref=e77]:
+                  - columnheader "ID" [ref=e78]
+                  - columnheader "说明" [ref=e79]
+                  - columnheader "值" [ref=e80]
+              - rowgroup [ref=e81]:
+                - row "1 字体族名 Book Antiqua" [ref=e82]:
+                  - cell "1" [ref=e83]
+                  - cell "字体族名" [ref=e84]
+                  - cell "Book Antiqua" [ref=e85]
+                - row "2 子族名 Negreta" [ref=e86]:
+                  - cell "2" [ref=e87]
+                  - cell "子族名" [ref=e88]
+                  - cell "Negreta" [ref=e89]
+                - row "4 全名 Book Antiqua Negreta" [ref=e90]:
+                  - cell "4" [ref=e91]
+                  - cell "全名" [ref=e92]
+                  - cell "Book Antiqua Negreta" [ref=e93]
+                - row "5 版本 Version 2.35" [ref=e94]:
+                  - cell "5" [ref=e95]
+                  - cell "版本" [ref=e96]
+                  - cell "Version 2.35" [ref=e97]
+                - row "6 PS名 BookAntiqua-Bold" [ref=e98]:
+                  - cell "6" [ref=e99]
+                  - cell "PS名" [ref=e100]
+                  - cell "BookAntiqua-Bold" [ref=e101]
+  - generic [ref=e102]: "已加载: test-font.ttf"
