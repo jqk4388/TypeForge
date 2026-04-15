@@ -54,13 +54,14 @@
     <!-- Names Panel -->
     <div class="panel" id="panel-names">
       <h2 style="font-size:20px;font-weight:700;margin-bottom:16px">名称表 <span class="tag tag-ac">name</span></h2>
-      <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
         <input class="fld" id="nameSearch" placeholder="搜索 nameID 或值..." style="max-width:260px">
         <button class="btn btn-sm" id="nameAddBtn">+ 添加记录</button>
         <button class="btn-ghost btn-sm" id="nameBatchBtn">批量替换</button>
         <button class="btn-ghost btn-sm" id="nameQuickBtn">快捷编辑</button>
         <button class="btn btn-sm" id="namePSBtn" style="background:var(--ac2);color:#fff">PS名称生成</button>
       </div>
+      <div id="nameStatusBar" class="name-status-bar" style="display:none"></div>
       <div id="nameQuickEdit" class="card" style="margin-bottom:16px;display:none"></div>
       <div id="namePSPanel" class="card" style="margin-bottom:16px;display:none"></div>
       <div style="overflow-x:auto"><table id="nameTable"><thead><tr><th>nameID</th><th>平台</th><th>编码</th><th>语言</th><th>值</th><th></th></tr></thead><tbody></tbody></table></div>

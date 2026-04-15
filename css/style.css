@@ -305,6 +305,108 @@ input[type=range]::-webkit-slider-thumb {
 .cmap-glyph-mini { display: inline-flex; align-items: center; justify-content: center; }
 .cmap-glyph-mini svg { display: block; }
 
+/* ─── Name Table Status Bar ───────────────────────────────────── */
+.name-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all .2s;
+}
+.name-status-bar.status-loading {
+  background: var(--ac-bg);
+  color: var(--ac);
+  border: 1px solid var(--ac);
+}
+.name-status-bar.status-loading::before {
+  content: '';
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid var(--ac);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.name-status-bar.status-ok {
+  background: rgba(45, 212, 160, .08);
+  color: var(--ok);
+  border: 1px solid var(--ok);
+}
+.name-status-bar.status-ok::before {
+  content: '✓';
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.name-status-bar.status-err {
+  background: rgba(244, 63, 94, .08);
+  color: var(--err);
+  border: 1px solid var(--err);
+}
+.name-status-bar.status-err::before {
+  content: '✕';
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ─── Name Table Inline Edit ──────────────────────────────────── */
+.name-row.row-dirty td {
+  background: var(--mod);
+}
+.name-cell {
+  vertical-align: top;
+  padding: 4px 6px !important;
+}
+.name-cell-nid {
+  min-width: 160px;
+}
+.name-nid-label {
+  font-size: 10px;
+  color: var(--tx-3);
+  margin-top: 2px;
+  line-height: 1.2;
+}
+.name-cell-value {
+  min-width: 200px;
+}
+.name-cell-actions {
+  white-space: nowrap;
+}
+.name-select-nid,
+.name-select-plat,
+.name-select-enc,
+.name-select-lang {
+  min-width: 100px;
+  font-size: 12px;
+  padding: 3px 6px;
+}
+.name-input-value {
+  font-size: 12px;
+  padding: 3px 6px;
+}
+.name-input-nid,
+.name-input-lang {
+  font-size: 12px;
+  padding: 3px 6px;
+}
+.btn-dirty {
+  background: var(--mod-b) !important;
+  color: #000 !important;
+  border-color: var(--mod-b) !important;
+  animation: pulse-dirty 1.2s ease-in-out infinite;
+}
+@keyframes pulse-dirty {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .6; }
+}
+
 /* ─── Glyph grid: sizer for virtual scroll ────────────────────── */
 .glyph-grid-virtual { position: relative; }
 .glyph-sizer { position: absolute; top: 0; left: 0; width: 1px; pointer-events: none; }
