@@ -59,11 +59,11 @@ def build():
   <div style="background:var(--bg-1);border:1px solid var(--bd);border-radius:12px;padding:24px;text-align:left;margin-bottom:24px">
     <h2 style="font-size:18px;font-weight:700;margin-bottom:12px">快速启动</h2>
     <pre style="font-size:13px;color:var(--tx-1);background:var(--bg-0);padding:16px;border-radius:8px;overflow-x:auto"><code># 克隆仓库
-git clone https://github.com/YOUR_USERNAME/typeforge-pro.git
+git clone https://github.com/jqk4388/TypeForge.git
 cd typeforge-pro
 
 # 安装依赖
-pip install fonttools flask flask-cors cairosvg
+pip install fonttools flask flask-cors cairosvg brotli
 
 # 启动服务
 python app.py
@@ -73,8 +73,8 @@ python app.py
   </div>
 
   <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-    <a href="https://github.com/YOUR_USERNAME/typeforge-pro" style="display:inline-flex;align-items:center;gap:6px;padding:10px 20px;background:var(--bg-1);border:1px solid var(--bd);border-radius:8px;color:var(--tx-0);text-decoration:none;font-size:14px;font-weight:600">
-      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    <a href="https://github.com/jqk4388/TypeForge" style="display:inline-flex;align-items:center;gap:6px;padding:10px 20px;background:var(--bg-1);border:1px solid var(--bd);border-radius:8px;color:var(--tx-0);text-decoration:none;font-size:14px;font-weight:600">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1。9２。０８２。１２。５１。５６。８２１。２７。８２２。１５０３。０７－１。８７３。７５－３。６５３。９５。２９。２５。５４。７３。５４１。４８０１。０７－０。０１１。９３－０。０１２。２０ 。２１ 。１５ 。４６ 。５５ 。３８Ａ８。０１３８ 。０１３０００１６８ｃ０－４。４２－３。５８－８－８－８ｚ"/></svg>
       GitHub
     </a>
   </div>
